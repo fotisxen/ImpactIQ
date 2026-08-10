@@ -1,0 +1,40 @@
+{
+  "name": "boxscore-analytics",
+  "version": "0.1.0",
+  "description": "Desktop app: photo of a box score in, basic + advanced basketball stats out, for players/teams/leagues.",
+  "main": "electron/main.js",
+  "scripts": {
+    "renderer:start": "npm --prefix renderer start",
+    "renderer:build": "npm --prefix renderer run build",
+    "electron:start": "electron .",
+    "dev": "concurrently \"npm:renderer:start\" \"wait-on http://localhost:4200 && cross-env ELECTRON_START_URL=http://localhost:4200 electron .\"",
+    "build": "npm run renderer:build && electron-builder",
+    "postinstall": "npm --prefix renderer install"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.2",
+    "better-sqlite3": "^11.5.0",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "ws": "^8.21.3"
+  },
+  "build": {
+    "appId": "gr.opensite.boxscore-analytics",
+    "productName": "Box Score Analytics",
+    "files": [
+      "electron/**/*",
+      "renderer/dist/**/*"
+    ],
+    "directories": {
+      "output": "dist-electron"
+    }
+  }
+}

@@ -1,0 +1,316 @@
+/* ==========================================================================
+   Design tokens — dark, modern sports-analytics theme
+   ========================================================================== */
+:root {
+  /* Surfaces */
+  --bg: #0b0e14;
+  --surface: #12161f;
+  --surface-raised: #171c27;
+  --surface-hover: #1d2330;
+  --border: #262d3d;
+  --border-strong: #333c52;
+
+  /* Text */
+  --text: #e9edf5;
+  --text-muted: #8b94a8;
+  --text-faint: #5b6479;
+
+  /* Accent — basketball orange */
+  --accent: #ff7a29;
+  --accent-hover: #ff8c47;
+  --accent-muted: rgba(255, 122, 41, 0.15);
+  --accent-text: #1a0d02;
+
+  /* Secondary accent (charts / links) */
+  --accent-2: #3aa0ff;
+  --accent-2-muted: rgba(58, 160, 255, 0.15);
+
+  /* Semantic */
+  --positive: #35d07f;
+  --positive-muted: rgba(53, 208, 127, 0.15);
+  --negative: #ff5c5c;
+  --negative-muted: rgba(255, 92, 92, 0.15);
+
+  /* Spacing scale (4px base) */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  /* Shadow */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  /* Typography */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'SF Mono', Consolas, 'Cascadia Code', monospace;
+
+  color-scheme: dark;
+}
+
+/* ==========================================================================
+   Reset
+   ========================================================================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent-2);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+::selection {
+  background: var(--accent-muted);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--bg);
+}
+
+/* ==========================================================================
+   Layout utilities
+   ========================================================================== */
+.stack {
+  display: flex;
+  flex-direction: column;
+}
+.cluster {
+  display: flex;
+  align-items: center;
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.05s ease,
+    opacity 0.15s ease;
+  white-space: nowrap;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--surface-raised);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-muted);
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--negative);
+  border-color: var(--negative-muted);
+}
+.btn-danger:hover:not(:disabled) {
+  background: var(--negative-muted);
+}
+
+.btn-sm {
+  padding: var(--space-1) var(--space-3);
+  font-size: 0.8rem;
+}
+
+.btn-icon {
+  padding: var(--space-2);
+  width: 2rem;
+  height: 2rem;
+}
+
+/* ==========================================================================
+   Cards / surfaces
+   ========================================================================== */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ==========================================================================
+   Form fields
+   ========================================================================== */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.field input,
+.field select {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+}
+.field input:focus,
+.field select:focus {
+  border-color: var(--accent);
+}
+.field-error {
+  color: var(--negative);
+  font-size: 0.8rem;
+}
+
+/* ==========================================================================
+   Badges
+   ========================================================================== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.15rem var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+}
+.badge-accent {
+  background: var(--accent-muted);
+  color: var(--accent);
+  border-color: transparent;
+}
+.badge-positive {
+  background: var(--positive-muted);
+  color: var(--positive);
+  border-color: transparent;
+}
+.badge-negative {
+  background: var(--negative-muted);
+  color: var(--negative);
+  border-color: transparent;
+}
+
+/* ==========================================================================
+   Misc
+   ========================================================================== */
+.hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.error-text {
+  color: var(--negative);
+  font-size: 0.85rem;
+}

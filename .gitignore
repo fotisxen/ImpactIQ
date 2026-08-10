@@ -1,0 +1,6 @@
+node_modules/
+dist-electron/
+renderer/dist/
+.env
+*.sqlite3
+*.sqlite3-*
