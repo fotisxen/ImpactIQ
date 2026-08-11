@@ -1,17 +1,19 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 
 /**
  * A single big-number stat display. `value` is pre-formatted by the caller
  * (e.g. "58.3%", "24.1", "112") so this component stays unit-agnostic.
  * `diff`, if provided, is shown as a small +/- delta vs. a comparison line
  * (e.g. team or league average) with positive/negative coloring.
+ * Pass `clickable` to render it as a button (e.g. to open a trend modal)
+ * and listen on `tileClick`.
  */
 @Component({
   selector: 'app-stat-tile',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="tile">
+    <div class="tile" [class.clickable]="clickable()" (click)="onClick()">
       <span class="tile-label">{{ label() }}</span>
       <span class="tile-value">{{ value() }}</span>
       @if (diffLabel(); as d) {
@@ -31,6 +33,13 @@ import { ChangeDetectionStrategy, Component, computed, input } from '@angular/co
       border-radius: var(--radius-lg);
       padding: var(--space-4) var(--space-5);
       min-width: 0;
+    }
+    .tile.clickable {
+      cursor: pointer;
+      transition: border-color 0.15s ease;
+    }
+    .tile.clickable:hover {
+      border-color: var(--accent);
     }
     .tile-label {
       font-size: 0.72rem;
@@ -64,6 +73,12 @@ export class StatTileComponent {
   readonly value = input.required<string>();
   readonly diff = input<number | null>(null);
   readonly diffAgainst = input<string>('team');
+  readonly clickable = input<boolean>(false);
+  readonly tileClick = output<void>();
+
+  protected onClick(): void {
+    if (this.clickable()) this.tileClick.emit();
+  }
 
   protected readonly diffSign = computed(() => {
     const d = this.diff();

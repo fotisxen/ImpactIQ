@@ -1,4 +1,5 @@
 import { Injectable, signal } from '@angular/core';
+import { cleanErrorMessage } from '../utils/error-message';
 
 export type ToastVariant = 'success' | 'error' | 'info';
 
@@ -28,7 +29,7 @@ export class ToastService {
   }
 
   error(message: string): void {
-    this.show(message, 'error');
+    this.show(cleanErrorMessage(message), 'error');
   }
 
   dismiss(id: number): void {

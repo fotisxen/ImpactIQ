@@ -384,6 +384,38 @@ function impactScore(perGameRow, leagueAvgPerGame, tsPct, leagueAvgTsPct) {
   );
 }
 
+/**
+ * Dean Oliver's "Four Factors" composite, weighted 40/25/20/15 (eFG%, TOV%,
+ * ORB%, FT rate) exactly as Oliver defined them. TOV% is inverted
+ * (1 - TOV%) before weighting since fewer turnovers is better — applying
+ * the raw TOV% directly would reward turning the ball over more often.
+ */
+function doeScore({ row, teamRow, oppRow, isTeam }) {
+  const efg = effectiveFgPct(row);
+  const tov = isTeam ? teamTovPct(row) : tovPct(row);
+  const orb = isTeam ? teamOrebPct(row, oppRow) : orebPct(row, teamRow, oppRow);
+  const ftHr = ftRate(row);
+  return 0.4 * efg + 0.25 * (1 - tov) + 0.2 * orb + 0.15 * ftHr;
+}
+
+/**
+ * DOE (Dean Oliver's Evaluation) stat category: ORtg/DRtg — points scored
+ * (resp. allowed) per 100 estimated possessions — plus the Four Factors
+ * composite above. `oppRow` supplies DRtg (the opponent's own scoring rate
+ * while playing this team/player's side) and the ORB% term; for an
+ * individual player, DRtg and the composite's ORB% term necessarily reflect
+ * their *team's* defense/rebounding context, not an isolated individual
+ * defensive rating — box-score data alone can't separate that out without
+ * on/off-court tracking.
+ */
+function doeStatLine({ row, teamRow, oppRow, isTeam }) {
+  return {
+    ortg: pointsPer100Poss(row),
+    drtg: pointsPer100Poss(oppRow),
+    doe: doeScore({ row, teamRow, oppRow, isTeam }),
+  };
+}
+
 module.exports = {
   trueShootingPct,
   effectiveFgPct,
@@ -402,4 +434,5 @@ module.exports = {
   reboundingStatLine,
   ballHandlingStatLine,
   pie,
+  doeStatLine,
 };

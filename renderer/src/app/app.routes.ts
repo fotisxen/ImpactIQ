@@ -38,6 +38,13 @@ export const routes: Routes = [
           import('./features/dashboard/dashboard.component').then((m) => m.DashboardComponent),
       },
       {
+        path: 'game-insights',
+        loadComponent: () =>
+          import('./features/game-insights/game-insights.component').then(
+            (m) => m.GameInsightsComponent
+          ),
+      },
+      {
         path: 'account',
         loadComponent: () =>
           import('./features/account/account.component').then((m) => m.AccountComponent),

@@ -22,6 +22,7 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
           <a routerLink="/upload" routerLinkActive="active">Upload Photo</a>
           <a routerLink="/manual-entry" routerLinkActive="active">Manual Entry</a>
           <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
+          <a routerLink="/game-insights" routerLinkActive="active">Insights</a>
           <a routerLink="/account" routerLinkActive="active">Account</a>
         </nav>
       </aside>

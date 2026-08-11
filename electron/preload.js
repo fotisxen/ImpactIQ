@@ -15,13 +15,23 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   getTeamStats: (teamId) => ipcRenderer.invoke('db:get-team-stats', teamId),
   getLeagueAverages: (leagueId, seasonId) =>
     ipcRenderer.invoke('db:get-league-averages', leagueId, seasonId),
+  getLeaguePlayerAverages: (leagueId, seasonId) =>
+    ipcRenderer.invoke('db:get-league-player-averages', leagueId, seasonId),
   getLeagueTeamRankings: (leagueId, seasonId) =>
     ipcRenderer.invoke('db:get-league-team-rankings', leagueId, seasonId),
+  getLeaguePlayerLeaderboard: (leagueId, seasonId) =>
+    ipcRenderer.invoke('db:get-league-player-leaderboard', leagueId, seasonId),
+  getGameBoxScore: (gameId) => ipcRenderer.invoke('db:get-game-box-score', gameId),
+  listGames: () => ipcRenderer.invoke('db:list-games'),
+  getGameInsights: (gameId) => ipcRenderer.invoke('db:get-game-insights', gameId),
+  getTeamScoutingReport: (teamId) => ipcRenderer.invoke('db:get-team-scouting-report', teamId),
+  getPlayerScoutingReport: (playerId) => ipcRenderer.invoke('db:get-player-scouting-report', playerId),
   getTeamAllCompetitions: (teamId) => ipcRenderer.invoke('db:get-team-all-competitions', teamId),
   getPlayerAllCompetitions: (playerId) =>
     ipcRenderer.invoke('db:get-player-all-competitions', playerId),
   listTeams: () => ipcRenderer.invoke('db:list-teams'),
   listPlayers: (teamId) => ipcRenderer.invoke('db:list-players', teamId),
+  listAllPlayers: () => ipcRenderer.invoke('db:list-all-players'),
 
   // League / season / team management for the game-context picker.
   listLeagues: () => ipcRenderer.invoke('db:list-leagues'),
@@ -33,6 +43,7 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   // Per-game history, for dashboard trend charts and recent-games tables.
   getPlayerGameLog: (playerId) => ipcRenderer.invoke('db:get-player-game-log', playerId),
   getTeamGameLog: (teamId) => ipcRenderer.invoke('db:get-team-game-log', teamId),
+  getPlayerPieLog: (playerId) => ipcRenderer.invoke('db:get-player-pie-log', playerId),
 
   // Supabase-backed auth — email/password handled entirely by Supabase Auth;
   // `profile` carries the signup-only extras (name, role, organization, birth date).
@@ -78,4 +89,8 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   // Opens a native save dialog and writes the .xlsx file.
   exportExcel: (payload, suggestedName) =>
     ipcRenderer.invoke('export:excel', { payload, suggestedName }),
+
+  // Opens a native save dialog and writes a PNG report card image.
+  exportImage: (base64Png, suggestedName) =>
+    ipcRenderer.invoke('export:save-image', { base64Png, suggestedName }),
 });

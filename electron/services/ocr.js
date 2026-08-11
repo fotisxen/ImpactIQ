@@ -79,7 +79,19 @@ async function extractBoxScore(base64Image, mediaType = 'image/jpeg') {
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Claude API error (${response.status}): ${errText}`);
+    let apiMessage = errText;
+    try {
+      apiMessage = JSON.parse(errText)?.error?.message || errText;
+    } catch {
+      // Not JSON — fall back to the raw text below.
+    }
+    if (response.status === 429) {
+      throw new Error("We're getting rate-limited by the OCR service — wait a moment and try again.");
+    }
+    if (response.status >= 500) {
+      throw new Error('The OCR service is temporarily unavailable — try again in a bit.');
+    }
+    throw new Error(`Couldn't read that photo: ${apiMessage}`);
   }
 
   const data = await response.json();

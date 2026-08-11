@@ -19,12 +19,32 @@ import {
   ChartSeries,
 } from '../../shared/components/stat-bar-chart.component';
 import { StatTrendChartComponent } from '../../shared/components/stat-trend-chart.component';
-import { chartPalette } from '../../shared/utils/chart-theme';
+import { StatLineModalComponent } from '../../shared/components/stat-line-modal.component';
+import { InsightChartModalComponent } from '../../shared/components/insight-chart-modal.component';
+import type { ChartData, ChartType } from 'chart.js';
+import type { GameLogRow, PieLogRow } from '../../core/models/box-score.model';
+import {
+  bubbleChartOptions,
+  chartPalette,
+  doughnutChartOptions,
+  polarAreaChartOptions,
+  radarChartOptions,
+} from '../../shared/utils/chart-theme';
 import {
   AdvancedStatLine,
+  PlayerLeaderboardEntry,
   StatSummary,
   TeamRanking,
 } from '../../core/models/box-score.model';
+import { ReportCardService } from '../../shared/services/report-card.service';
+import { ToastService } from '../../shared/services/toast.service';
+
+interface ChartModalState {
+  title: string;
+  description: string;
+  chartType: ChartType;
+  data: ChartData;
+}
 
 const MODE_OPTIONS: SegmentOption<DashboardMode>[] = [
   { label: 'Player', value: 'player' },
@@ -41,7 +61,8 @@ const COUNTING_LABELS = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TOV'];
 const SHOOTING_LABELS = ['TS%', 'eFG%', 'FG%', '3P%', 'FT%'];
 
 type RankStat =
-  'pts' | 'reb' | 'ast' | 'stl' | 'blk' | 'tov' | 'ts_pct' | 'efg_pct' | 'pir';
+  | 'pts' | 'reb' | 'ast' | 'stl' | 'blk' | 'tov' | 'ts_pct' | 'efg_pct' | 'pir'
+  | 'per' | 'impact' | 'pie';
 const RANK_STAT_OPTIONS: { value: RankStat; label: string }[] = [
   { value: 'pts', label: 'PTS / game' },
   { value: 'reb', label: 'REB / game' },
@@ -52,8 +73,21 @@ const RANK_STAT_OPTIONS: { value: RankStat; label: string }[] = [
   { value: 'ts_pct', label: 'TS%' },
   { value: 'efg_pct', label: 'eFG%' },
   { value: 'pir', label: 'PIR / game' },
+  { value: 'per', label: 'PER' },
+  { value: 'impact', label: 'Impact Score' },
+  { value: 'pie', label: 'PIE%' },
 ];
-const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
+const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct', 'pie']);
+
+/** Shape shared by TeamRanking and PlayerLeaderboardEntry — everything rankValueFor needs. */
+interface Rankable {
+  games: number;
+  perGame: Record<string, number>;
+  advanced: AdvancedStatLine;
+  per: number | null;
+  impact: number | null;
+  pie: number | null;
+}
 
 @Component({
   selector: 'app-dashboard',
@@ -65,6 +99,8 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
     StatTileComponent,
     StatBarChartComponent,
     StatTrendChartComponent,
+    StatLineModalComponent,
+    InsightChartModalComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -166,6 +202,13 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
       }
 
       @if (!dash.loading() && effectiveSummary(); as summary) {
+        @if (dash.mode() !== 'league') {
+          <div class="card-export-row">
+            <button type="button" class="btn btn-secondary btn-sm" [disabled]="exportingCard()" (click)="exportSeasonCard(summary)">
+              {{ exportingCard() ? 'Exporting…' : 'Export as image' }}
+            </button>
+          </div>
+        }
         <div class="headline-row">
           <app-stat-tile label="Games" [value]="summary.games.toString()" />
           <app-stat-tile
@@ -188,6 +231,8 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
               [value]="numFmt(summary.impact)"
               [diff]="impactDiff(summary)"
               [diffAgainst]="diffLabel()"
+              [clickable]="true"
+              (tileClick)="openStrengthProfileChart(summary)"
             />
           }
           @if (summary.pie !== null) {
@@ -196,14 +241,41 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
               [value]="pctFmt(summary.pie)"
               [diff]="pieDiff(summary)"
               [diffAgainst]="diffLabel()"
+              [clickable]="dash.mode() === 'player'"
+              (tileClick)="openPieModal()"
             />
           }
         </div>
 
+        @if (pieModalOpen()) {
+          <app-stat-line-modal
+            title="PIE per game"
+            [labels]="pieModalLabels()"
+            [data]="pieModalData()"
+            (close)="closePieModal()"
+          />
+        }
+
+        @if (chartModal(); as modal) {
+          <app-insight-chart-modal
+            [title]="modal.title"
+            [description]="modal.description"
+            [chartType]="modal.chartType"
+            [data]="modal.data"
+            [options]="chartModalOptions()"
+            (close)="chartModal.set(null)"
+          />
+        }
+
         <div class="stat-category">
           <h4>Basic stats</h4>
           <div class="tile-grid">
-            <app-stat-tile label="PTS / game" [value]="numFmt(summary.perGame['pts'])" />
+            <app-stat-tile
+              label="PTS / game"
+              [value]="numFmt(summary.perGame['pts'])"
+              [clickable]="true"
+              (tileClick)="openScoringBreakdownChart(summary)"
+            />
             <app-stat-tile label="MIN / game" [value]="numFmt(summary.perGame['min'])" />
             <app-stat-tile label="FGM / game" [value]="numFmt(summary.perGame['fgm'])" />
             <app-stat-tile label="FGA / game" [value]="numFmt(summary.perGame['fga'])" />
@@ -367,6 +439,57 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
                 [value]="pctFmt(summary.advanced.usg_pct)"
                 [diff]="pctDiffFor(summary, 'usg_pct')"
                 [diffAgainst]="diffLabel()"
+                [clickable]="true"
+                (tileClick)="openUsageEfficiencyChart()"
+              />
+            }
+          </div>
+        </div>
+
+        <div class="stat-category">
+          <div class="category-header-row">
+            <h4>DOE (Dean Oliver's Evaluation)</h4>
+            <button type="button" class="btn-link" (click)="openFourFactorsChart(summary)">View radar chart</button>
+          </div>
+          <div class="tile-grid">
+            <app-stat-tile
+              label="eFG% (40%)"
+              [value]="pctFmt(summary.advanced.efg_pct)"
+              [diff]="pctDiffFor(summary, 'efg_pct')"
+              [diffAgainst]="diffLabel()"
+            />
+            <app-stat-tile
+              label="TOV% (25%)"
+              [value]="pctFmt(summary.advanced.tov_pct)"
+              [diff]="pctDiffFor(summary, 'tov_pct')"
+              [diffAgainst]="diffLabel()"
+            />
+            <app-stat-tile
+              label="ORB% (20%)"
+              [value]="pctFmt(summary.advanced.oreb_pct)"
+              [diff]="pctDiffFor(summary, 'oreb_pct')"
+              [diffAgainst]="diffLabel()"
+            />
+            <app-stat-tile
+              label="FTHr (15%)"
+              [value]="pctFmt(summary.advanced.ft_rate)"
+              [diff]="pctDiffFor(summary, 'ft_rate')"
+              [diffAgainst]="diffLabel()"
+            />
+            @if (summary.advanced.ortg !== null) {
+              <app-stat-tile
+                label="ORtg"
+                [value]="numFmt(summary.advanced.ortg)"
+                [diff]="ortgDiff(summary)"
+                [diffAgainst]="diffLabel()"
+              />
+            }
+            @if (summary.advanced.drtg !== null) {
+              <app-stat-tile
+                label="DRtg"
+                [value]="numFmt(summary.advanced.drtg)"
+                [diff]="drtgDiff(summary)"
+                [diffAgainst]="diffLabel()"
               />
             }
           </div>
@@ -464,6 +587,46 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
               </table>
             </div>
           </div>
+
+          <div class="table-card card">
+            <div class="rankings-header">
+              <h4>Player leaderboard</h4>
+              <span class="hint">Ranked by {{ rankStatLabel() }}</span>
+            </div>
+            <div class="table-scroll">
+              <table class="log-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Player</th>
+                    <th>Team</th>
+                    <th>GP</th>
+                    <th>{{ rankStatLabel() }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (r of sortedLeaderboard(); track r.playerId; let i = $index) {
+                    <tr>
+                      <td>{{ i + 1 }}</td>
+                      <td>{{ r.playerName }}</td>
+                      <td>{{ r.teamName }}</td>
+                      <td>{{ r.games }}</td>
+                      <td>
+                        {{ numFmt(rankValue(r))
+                        }}{{ isPercentStat() ? '%' : '' }}
+                      </td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="5" class="hint">
+                        No games saved for this league/season yet.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
         }
 
         @if (dash.mode() !== 'league' && dash.scope() !== 'all') {
@@ -485,6 +648,7 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
                     <th>PTS</th>
                     <th>REB</th>
                     <th>AST</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -496,10 +660,20 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
                       <td>{{ g.pts }}</td>
                       <td>{{ g.oreb + g.dreb }}</td>
                       <td>{{ g.ast }}</td>
+                      <td>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-sm"
+                          [disabled]="exportingGameId() === g.game_id"
+                          (click)="exportGameCard(g.game_id)"
+                        >
+                          {{ exportingGameId() === g.game_id ? 'Exporting…' : 'Share' }}
+                        </button>
+                      </td>
                     </tr>
                   } @empty {
                     <tr>
-                      <td colspan="6" class="hint">No games saved yet.</td>
+                      <td colspan="7" class="hint">No games saved yet.</td>
                     </tr>
                   }
                 </tbody>
@@ -551,6 +725,11 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
       min-width: 340px;
     }
 
+    .card-export-row {
+      display: flex;
+      justify-content: flex-end;
+    }
+
     .headline-row {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -568,6 +747,24 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--text-muted);
+    }
+    .category-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+    }
+    .btn-link {
+      background: none;
+      border: none;
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 0;
+    }
+    .btn-link:hover {
+      text-decoration: underline;
     }
 
     .tile-grid {
@@ -645,12 +842,17 @@ const RANK_PERCENT_STATS = new Set<RankStat>(['ts_pct', 'efg_pct']);
 })
 export class DashboardComponent implements OnInit {
   protected readonly dash = inject(DashboardService);
+  private readonly reportCard = inject(ReportCardService);
+  private readonly toast = inject(ToastService);
 
   protected readonly modeOptions = MODE_OPTIONS;
   protected readonly scopeOptions = SCOPE_OPTIONS;
   protected readonly countingLabels = COUNTING_LABELS;
   protected readonly shootingLabels = SHOOTING_LABELS;
   protected readonly rankStatOptions = RANK_STAT_OPTIONS;
+
+  protected readonly exportingCard = signal(false);
+  protected readonly exportingGameId = signal<number | null>(null);
 
   protected readonly rankStat = signal<RankStat>('pts');
 
@@ -661,8 +863,65 @@ export class DashboardComponent implements OnInit {
     );
   });
 
+  protected readonly sortedLeaderboard = computed(() => {
+    const stat = this.rankStat();
+    return [...this.dash.playerLeaderboard()].sort(
+      (a, b) => this.rankValueFor(b, stat) - this.rankValueFor(a, stat),
+    );
+  });
+
   async ngOnInit(): Promise<void> {
     await this.dash.init();
+  }
+
+  protected async exportSeasonCard(summary: StatSummary): Promise<void> {
+    this.exportingCard.set(true);
+    try {
+      await this.reportCard.exportPlayerOrTeamCard(
+        { subjectName: this.subjectName(), subtitle: this.subjectSubtitle(), summary },
+        `${this.subjectName().replace(/[^\w -]/g, '')}-report-card.png`
+      );
+    } catch (err) {
+      this.toast.error(err instanceof Error ? err.message : 'Failed to export report card.');
+    } finally {
+      this.exportingCard.set(false);
+    }
+  }
+
+  protected async exportGameCard(gameId: number): Promise<void> {
+    this.exportingGameId.set(gameId);
+    try {
+      const box = await window.boxscoreApi.getGameBoxScore(gameId);
+      if (!box) {
+        this.toast.error('Could not load that game.');
+        return;
+      }
+      await this.reportCard.exportGameCard(
+        box,
+        `${box.homeTeamName}-vs-${box.awayTeamName}-${box.date}.png`.replace(/[^\w .-]/g, '')
+      );
+    } catch (err) {
+      this.toast.error(err instanceof Error ? err.message : 'Failed to export game card.');
+    } finally {
+      this.exportingGameId.set(null);
+    }
+  }
+
+  private subjectName(): string {
+    if (this.dash.mode() === 'player') {
+      return this.dash.playerOptions().find((o) => o.id === this.dash.selectedPlayerId())?.label ?? 'Player';
+    }
+    return this.dash.teamOptions().find((o) => o.id === this.dash.selectedTeamId())?.label ?? 'Team';
+  }
+
+  private subjectSubtitle(): string {
+    const league = this.dash.leagues().find((l) => l.id === this.dash.selectedLeagueId())?.name ?? '';
+    const season = this.dash.seasonOptions().find((s) => s.id === this.dash.selectedSeasonId())?.label ?? '';
+    if (this.dash.mode() === 'player') {
+      const team = this.dash.teamOptions().find((o) => o.id === this.dash.selectedTeamId())?.label ?? '';
+      return [team, league, season].filter(Boolean).join(' · ');
+    }
+    return [league, season].filter(Boolean).join(' · ');
   }
 
   protected numFmt(n: number | undefined): string {
@@ -687,11 +946,11 @@ export class DashboardComponent implements OnInit {
     return RANK_PERCENT_STATS.has(this.rankStat());
   }
 
-  protected rankValue(r: TeamRanking): number {
+  protected rankValue(r: Rankable): number {
     return this.rankValueFor(r, this.rankStat());
   }
 
-  private rankValueFor(r: TeamRanking, stat: RankStat): number {
+  private rankValueFor(r: Rankable, stat: RankStat): number {
     switch (stat) {
       case 'reb':
         return this.reboundsPerGame(r);
@@ -700,14 +959,21 @@ export class DashboardComponent implements OnInit {
       case 'efg_pct':
         return r.advanced.efg_pct * 100;
       case 'pir':
-        return r.games > 0 ? r.advanced.pir / r.games : 0;
+        // advanced.pir is already a per-game rate (see buildStatSummary), not a season total.
+        return r.advanced.pir;
+      case 'per':
+        return r.per ?? 0;
+      case 'impact':
+        return r.impact ?? 0;
+      case 'pie':
+        return (r.pie ?? 0) * 100;
       default:
         return r.perGame[stat] ?? 0;
     }
   }
 
   protected diffLabel(): string {
-    return this.dash.mode() === 'player' ? 'team' : 'league';
+    return this.dash.mode() === 'player' ? 'avg player' : 'league';
   }
 
   /** The summary actually displayed — per-competition (as today) or combined-across-leagues. */
@@ -716,11 +982,17 @@ export class DashboardComponent implements OnInit {
     return this.dash.primary();
   }
 
+  /**
+   * Both modes compare against a league baseline now — just a different
+   * flavor: a player's own per-game numbers (~15 PTS) against the league's
+   * average PLAYER (~15 PTS), a team's against the league's average TEAM
+   * (~80 PTS). Comparing a player against their own team's totals (the old
+   * behavior) compared numbers on completely different scales.
+   */
   protected comparisonBaseline(): StatSummary | null {
     // No single coherent league to compare a cross-competition total against.
     if (this.dash.scope() === 'all') return null;
-    if (this.dash.mode() === 'player') return this.dash.teamBaseline();
-    if (this.dash.mode() === 'team') return this.dash.leagueBaseline();
+    if (this.dash.mode() === 'player' || this.dash.mode() === 'team') return this.dash.leagueBaseline();
     return null;
   }
 
@@ -770,6 +1042,19 @@ export class DashboardComponent implements OnInit {
     const baseline = this.comparisonBaseline();
     if (!baseline || summary.impact === null || baseline.impact === null) return null;
     return summary.impact - baseline.impact;
+  }
+
+  /** ORtg/DRtg are points-per-100-possessions, not 0-1 fractions — plain diff, not pctDiffFor's x100. */
+  protected ortgDiff(summary: StatSummary): number | null {
+    const baseline = this.comparisonBaseline();
+    if (!baseline || summary.advanced.ortg === null || baseline.advanced.ortg === null) return null;
+    return summary.advanced.ortg - baseline.advanced.ortg;
+  }
+
+  protected drtgDiff(summary: StatSummary): number | null {
+    const baseline = this.comparisonBaseline();
+    if (!baseline || summary.advanced.drtg === null || baseline.advanced.drtg === null) return null;
+    return summary.advanced.drtg - baseline.advanced.drtg;
   }
 
   protected astToTovRatio(summary: { perGame: Record<string, number> }): number {
@@ -892,5 +1177,180 @@ export class DashboardComponent implements OnInit {
 
   protected trendData(): number[] {
     return this.dash.gameLog().map((g) => g.pts);
+  }
+
+  protected readonly pieModalOpen = signal(false);
+  protected readonly pieLog = signal<PieLogRow[]>([]);
+
+  protected async openPieModal(): Promise<void> {
+    const playerId = this.dash.selectedPlayerId();
+    if (playerId === null) return;
+    this.pieModalOpen.set(true);
+    this.pieLog.set(await window.boxscoreApi.getPlayerPieLog(playerId));
+  }
+
+  protected closePieModal(): void {
+    this.pieModalOpen.set(false);
+    this.pieLog.set([]);
+  }
+
+  protected pieModalLabels(): string[] {
+    return this.pieLog().map((g) => `${g.date} vs ${g.opponent}`);
+  }
+
+  protected pieModalData(): number[] {
+    return this.pieLog().map((g) => g.pie * 100);
+  }
+
+  // ── Insight chart modals ──────────────────────────────────────────────
+  // Four different chart shapes, each picked because it's the natural fit
+  // for that metric — not just a line/bar for everything.
+
+  protected readonly chartModal = signal<ChartModalState | null>(null);
+
+  protected chartModalOptions() {
+    switch (this.chartModal()?.chartType) {
+      case 'radar':
+        return radarChartOptions;
+      case 'doughnut':
+        return doughnutChartOptions;
+      case 'polarArea':
+        return polarAreaChartOptions;
+      case 'bubble':
+        return bubbleChartOptions;
+      default:
+        return {};
+    }
+  }
+
+  /** Radar — the Four Factors' actual *shape*, this subject vs. the comparison baseline, at a glance. */
+  protected openFourFactorsChart(summary: StatSummary): void {
+    const adv = summary.advanced;
+    const baseline = this.comparisonBaseline();
+    const labels = ['eFG%', 'Ball security', 'ORB%', 'FT rate'];
+    const subjectValues = [adv.efg_pct, 1 - (adv.tov_pct ?? 0), adv.oreb_pct ?? 0, adv.ft_rate].map((v) => v * 100);
+
+    const datasets: NonNullable<ChartData<'radar'>['datasets']> = [
+      {
+        label: this.subjectName(),
+        data: subjectValues,
+        borderColor: chartPalette.accent,
+        backgroundColor: 'rgba(255, 122, 41, 0.25)',
+        pointBackgroundColor: chartPalette.accent,
+      },
+    ];
+    if (baseline) {
+      const b = baseline.advanced;
+      datasets.push({
+        label: this.diffLabel() === 'team' ? 'Team' : 'League avg',
+        data: [b.efg_pct, 1 - (b.tov_pct ?? 0), b.oreb_pct ?? 0, b.ft_rate].map((v) => v * 100),
+        borderColor: chartPalette.accent2,
+        backgroundColor: 'rgba(58, 160, 255, 0.15)',
+        pointBackgroundColor: chartPalette.accent2,
+      });
+    }
+
+    this.chartModal.set({
+      title: 'Four Factors',
+      description:
+        "Dean Oliver's Four Factors, plotted as a shape — the four things that decide who wins: shooting, ball security, rebounding, and getting to the line. A bigger, rounder shape is a more complete performance.",
+      chartType: 'radar',
+      data: { labels, datasets } as ChartData,
+    });
+  }
+
+  /** Doughnut — how this subject's points actually break down by shot type. */
+  protected openScoringBreakdownChart(summary: StatSummary): void {
+    const t = summary.totals;
+    const twoPtPts = ((t['fgm'] ?? 0) - (t['tpm'] ?? 0)) * 2;
+    const threePtPts = (t['tpm'] ?? 0) * 3;
+    const ftPts = t['ftm'] ?? 0;
+
+    this.chartModal.set({
+      title: 'Scoring breakdown',
+      description: 'Where this scoring actually comes from — the share of total points scored on 2-pointers, 3-pointers, and free throws.',
+      chartType: 'doughnut',
+      data: {
+        labels: ['2PT', '3PT', 'FT'],
+        datasets: [
+          {
+            data: [twoPtPts, threePtPts, ftPts],
+            backgroundColor: [chartPalette.accent, chartPalette.accent2, chartPalette.positive],
+            borderColor: chartPalette.surfaceRaised,
+            borderWidth: 2,
+          },
+        ],
+      } as ChartData,
+    });
+  }
+
+  /** Bubble — shot volume vs. efficiency, one bubble per game, so hot/cold and heavy/light-usage games are visible at once. */
+  protected openUsageEfficiencyChart(): void {
+    const log = this.dash.gameLog();
+    const points = log
+      .filter((g) => g.fga > 0)
+      .map((g) => ({
+        x: g.fga,
+        y: this.tsPctForGame(g) * 100,
+        r: Math.max(4, g.pts / 2),
+      }));
+
+    this.chartModal.set({
+      title: 'Shot volume vs. efficiency',
+      description:
+        'One bubble per game: how many shots were taken (x-axis), how efficiently they went in (y-axis, True Shooting %), and bubble size for total points that game. Shows whether taking more shots comes at the cost of efficiency.',
+      chartType: 'bubble',
+      data: {
+        datasets: [
+          {
+            label: this.subjectName(),
+            data: points,
+            backgroundColor: 'rgba(255, 122, 41, 0.55)',
+            borderColor: chartPalette.accent,
+          },
+        ],
+      } as ChartData,
+    });
+  }
+
+  /** Polar area — a production "fingerprint": each category's size relative to the comparison baseline (100 = average). */
+  protected openStrengthProfileChart(summary: StatSummary): void {
+    const baseline = this.comparisonBaseline();
+    const pg = summary.perGame;
+    const basePg = baseline?.perGame;
+    const index = (value: number, base: number | undefined): number =>
+      base && base > 0 ? (value / base) * 100 : value > 0 ? 150 : 0;
+
+    const rebounds = (pg['oreb'] ?? 0) + (pg['dreb'] ?? 0);
+    const baseRebounds = basePg ? (basePg['oreb'] ?? 0) + (basePg['dreb'] ?? 0) : undefined;
+
+    const labels = ['PTS', 'REB', 'AST', 'STL', 'BLK'];
+    const values = [
+      index(pg['pts'] ?? 0, basePg?.['pts']),
+      index(rebounds, baseRebounds),
+      index(pg['ast'] ?? 0, basePg?.['ast']),
+      index(pg['stl'] ?? 0, basePg?.['stl']),
+      index(pg['blk'] ?? 0, basePg?.['blk']),
+    ];
+
+    this.chartModal.set({
+      title: 'Production profile',
+      description: `Each category sized relative to the ${this.diffLabel()} average — 100 means exactly average, bigger wedges mean further above it.`,
+      chartType: 'polarArea',
+      data: {
+        labels,
+        datasets: [
+          {
+            data: values,
+            backgroundColor: ['#ff7a2999', '#3aa0ff99', '#35d07f99', '#e0c04899', '#c774e899'],
+          },
+        ],
+      } as ChartData,
+    });
+  }
+
+  private tsPctForGame(g: GameLogRow): number {
+    const denom = 2 * (g.fga + 0.44 * g.fta);
+    return denom > 0 ? g.pts / denom : 0;
   }
 }

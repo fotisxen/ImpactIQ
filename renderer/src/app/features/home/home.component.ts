@@ -10,10 +10,16 @@ import { RouterLink } from '@angular/router';
     <div class="home-page">
       <section class="hero">
         <span class="eyebrow">Box Score Analytics</span>
-        <h1>Turn a photo of a box score into full basketball analytics.</h1>
+        <h1>Deep, reliable basketball data — to evaluate every player and team with confidence.</h1>
         <p class="lede">
-          Snap a picture, and let AI read the stats for you — or type them in by hand. Either way, you
-          get advanced stats, PER, PIE, league comparisons, and trend charts in seconds.
+          Basic stats, five categories of advanced metrics, PER, PIE, and real league-average comparisons —
+          the kind of data you need to actually judge a player's or team's performance, not just glance at
+          a scoreline.
+        </p>
+        <p class="lede ai-lede">
+          <span class="badge badge-accent">AI-powered</span>
+          Getting there is effortless: upload a photo of the box score and Claude AI reads and structures
+          every stat line for you automatically — or type them in by hand if you'd rather.
         </p>
         <div class="hero-actions">
           <a routerLink="/upload" class="btn btn-primary">Upload a photo</a>
@@ -30,7 +36,7 @@ import { RouterLink } from '@angular/router';
         <div class="step-card">
           <span class="step-number">2</span>
           <h3>AI reads it for you</h3>
-          <p>Claude extracts both rosters' full stat lines automatically, so you just review and correct rather than retype everything.</p>
+          <p>Claude AI extracts both rosters' full stat lines automatically, so you just review and correct rather than retype everything.</p>
         </div>
         <div class="step-card">
           <span class="step-number">3</span>
@@ -39,19 +45,19 @@ import { RouterLink } from '@angular/router';
         </div>
         <div class="step-card">
           <span class="step-number">4</span>
-          <h3>See the analytics</h3>
-          <p>Basic stats, four categories of advanced metrics, PER, PIE, and league-average comparisons — for any player or team, across every competition they play in.</p>
+          <h3>Get data you can actually evaluate with</h3>
+          <p>Basic stats, five categories of advanced metrics, PER, PIE, and league-average comparisons — for any player or team, across every competition they play in.</p>
         </div>
       </section>
 
       <section class="highlights">
         <div class="highlight-card">
-          <span class="badge badge-accent">Advanced stats</span>
-          <p>Scoring, shooting, rebounding, and ball-handling efficiency — split into individual and team versions.</p>
+          <span class="badge badge-accent">Trustworthy data</span>
+          <p>Scoring, shooting, rebounding, ball-handling, and Dean Oliver's Four Factors — individual and team versions, measured against real league averages, not in isolation.</p>
         </div>
         <div class="highlight-card">
-          <span class="badge badge-positive">League context</span>
-          <p>Every number is measured against real league averages, not in isolation.</p>
+          <span class="badge badge-positive">AI-powered extraction</span>
+          <p>Claude AI reads a photographed box score for you — accurate stat extraction without the manual data entry.</p>
         </div>
         <div class="highlight-card">
           <span class="badge" style="background: var(--accent-2-muted); color: var(--accent-2); border-color: transparent;">Multi-competition</span>
@@ -95,6 +101,15 @@ import { RouterLink } from '@angular/router';
       color: var(--text-muted);
       font-size: 1rem;
       line-height: 1.6;
+    }
+    .ai-lede {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-2);
+      font-size: 0.92rem;
+    }
+    .ai-lede .badge {
+      flex-shrink: 0;
     }
     .hero-actions {
       display: flex;

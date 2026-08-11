@@ -1,5 +1,6 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('node:path');
+const fs = require('node:fs');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
@@ -8,6 +9,13 @@ const { initDb } = require('./db');
 
 const DEEP_LINK_PROTOCOL = 'boxscore-analytics';
 
+// electron-builder picks up build/icon.png (Windows/Linux) or build/icon.icns
+// (macOS) automatically for the packaged app — this just also sets it on the
+// live BrowserWindow (title bar / taskbar) during `npm run dev`. Guarded
+// since the file only needs to exist once the app icon has actually been
+// added.
+const APP_ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png');
+
 let mainWindow;
 
 function createWindow() {
@@ -15,6 +23,7 @@ function createWindow() {
     width: 1280,
     height: 840,
     backgroundColor: '#0b0e14',
+    ...(fs.existsSync(APP_ICON_PATH) ? { icon: APP_ICON_PATH } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

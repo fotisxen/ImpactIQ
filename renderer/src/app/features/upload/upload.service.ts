@@ -1,5 +1,6 @@
 import { Injectable, computed, signal } from '@angular/core';
 import { ExtractedBoxScore } from '../../core/models/box-score.model';
+import { friendlyErrorMessage } from '../../shared/utils/error-message';
 
 @Injectable({ providedIn: 'root' })
 export class UploadService {
@@ -27,7 +28,7 @@ export class UploadService {
       const extracted = await window.boxscoreApi.extractBoxScore(base64, file.type);
       this.result.set(extracted);
     } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'OCR extraction failed.');
+      this.error.set(friendlyErrorMessage(err, 'OCR extraction failed.'));
     } finally {
       this.extracting.set(false);
     }
@@ -59,7 +60,7 @@ export class UploadService {
         this.result.set({ ...existing, opponent: extracted.team, opponentPlayers: extracted.players });
       }
     } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'OCR extraction failed.');
+      this.error.set(friendlyErrorMessage(err, 'OCR extraction failed.'));
     } finally {
       this.extracting.set(false);
     }

@@ -55,11 +55,17 @@ type RosterField = 'players' | 'opponentPlayers';
     <section class="upload-page">
       <header class="page-header">
         <h2>Upload a box score photo</h2>
-        <p class="hint">
-          No API key configured yet? This still works — you'll get a demo box
-          score back so you can try the full review / save / export flow.
-          <a routerLink="/manual-entry">Or enter stats manually instead.</a>
-        </p>
+        @if (sub.uploadStatus(); as up) {
+          @if (up.remaining !== undefined && up.limit !== undefined) {
+            <p class="hint quota-hint" [class.quota-low]="up.remaining <= 2">
+              {{ up.remaining }} of {{ up.limit }} photo uploads left this period
+              @if (up.planName) {
+                <span>· {{ up.planName }}</span>
+              }
+            </p>
+          }
+        }
+        <p class="hint"><a routerLink="/manual-entry">Prefer to enter stats manually instead?</a></p>
       </header>
 
       <div
@@ -180,6 +186,13 @@ type RosterField = 'players' | 'opponentPlayers';
     .page-header h2 {
       font-size: 1.4rem;
       margin-bottom: var(--space-1);
+    }
+    .quota-hint {
+      color: var(--text-muted);
+    }
+    .quota-hint.quota-low {
+      color: var(--negative);
+      font-weight: 600;
     }
 
     .upload-gate {
@@ -381,19 +394,29 @@ export class UploadComponent {
     const gameContext = this.gameContextRef();
     if (!boxScore || !gameContext) return;
 
-    const [teams, leagues] = await Promise.all([
-      this.entities.listTeams(),
-      this.entities.listLeagues(),
-    ]);
-    const match = resolveGameTeams(boxScore.team, boxScore.opponent, teams, leagues);
-    if (!match) return;
+    try {
+      const [teams, leagues] = await Promise.all([
+        this.entities.listTeams(),
+        this.entities.listLeagues(),
+      ]);
+      const match = resolveGameTeams(boxScore.team, boxScore.opponent, teams, leagues);
+      if (!match) {
+        console.warn('Auto-match: no confident team/league match for', boxScore.team, 'vs', boxScore.opponent);
+        return;
+      }
 
-    const referenceDate = boxScore.date && !Number.isNaN(Date.parse(boxScore.date))
-      ? new Date(boxScore.date)
-      : undefined;
-    await gameContext.selectLeague(match.leagueId, referenceDate);
-    this.myTeamId.set(match.teamId);
-    this.opponentId.set(match.opponentId);
+      // Set team IDs first so a downstream failure (e.g. resolving the
+      // season) still leaves the roster pickers correctly filled instead of
+      // an all-or-nothing failure that silently blanks everything.
+      this.myTeamId.set(match.teamId);
+      this.opponentId.set(match.opponentId);
+
+      const referenceDate =
+        boxScore.date && !Number.isNaN(Date.parse(boxScore.date)) ? new Date(boxScore.date) : undefined;
+      await gameContext.selectLeague(match.leagueId, referenceDate);
+    } catch (err) {
+      console.error('Auto-match failed — pick the league/teams manually.', err);
+    }
   }
 
   updateRoster(field: RosterField, roster: PlayerBoxScore[]): void {

@@ -36,14 +36,18 @@ export interface TeamMatchResult {
 /**
  * Matches OCR/manual-entered team names against the known team list to
  * auto-resolve which league and which two teams a box score belongs to.
- * Only returns a result when both names resolve to teams in the SAME
- * league — a mixed/ambiguous match isn't confident enough to auto-fill.
- * The user can always override via the pickers regardless.
  *
- * When a name matches teams in more than one league (e.g. a hand-created
- * league that happens to reuse a real club name), leagues with a known
- * country are preferred over ones without — that's the signal that a
- * league is a "real" seeded one rather than an ad-hoc duplicate.
+ * Real clubs often play in more than one competition at once (e.g. a team
+ * plays both its domestic league and a continental one — Partizan is
+ * seeded under both ABA League and EuroLeague, correctly, since it really
+ * plays in both). Matching each name independently and then just checking
+ * whether they happened to land in the same league breaks the moment one
+ * name's *first* match and the other name's *first* match aren't the same
+ * league — even though a shared league exists. So instead: search each
+ * league in turn, restrict matching to that league's own roster, and
+ * return the first league where BOTH names resolve to two different teams
+ * within it. Leagues with a known country (real seeded leagues, not an
+ * ad-hoc hand-created one) are tried first.
  */
 export function resolveGameTeams(
   teamName: string,
@@ -52,15 +56,19 @@ export function resolveGameTeams(
   leagues: League[]
 ): TeamMatchResult | null {
   const leagueHasCountry = new Map(leagues.map((l) => [l.id, !!l.country]));
-  const rankedTeams = [...teams].sort((a, b) => {
-    const aHas = leagueHasCountry.get(a.league_id) ? 1 : 0;
-    const bHas = leagueHasCountry.get(b.league_id) ? 1 : 0;
+  const leagueIds = [...new Set(teams.map((t) => t.league_id))].sort((a, b) => {
+    const aHas = leagueHasCountry.get(a) ? 1 : 0;
+    const bHas = leagueHasCountry.get(b) ? 1 : 0;
     return bHas - aHas;
   });
 
-  const team = findTeamMatch(teamName, rankedTeams);
-  const opponent = findTeamMatch(opponentName, rankedTeams);
-  if (!team || !opponent) return null;
-  if (team.id === opponent.id || team.league_id !== opponent.league_id) return null;
-  return { leagueId: team.league_id, teamId: team.id, opponentId: opponent.id };
+  for (const leagueId of leagueIds) {
+    const leagueTeams = teams.filter((t) => t.league_id === leagueId);
+    const team = findTeamMatch(teamName, leagueTeams);
+    const opponent = findTeamMatch(opponentName, leagueTeams);
+    if (team && opponent && team.id !== opponent.id) {
+      return { leagueId, teamId: team.id, opponentId: opponent.id };
+    }
+  }
+  return null;
 }

@@ -29,6 +29,7 @@
   "build": {
     "appId": "gr.opensite.boxscore-analytics",
     "productName": "Box Score Analytics",
+    "icon": "build/icon.png",
     "files": [
       "electron/**/*",
       "renderer/dist/**/*"

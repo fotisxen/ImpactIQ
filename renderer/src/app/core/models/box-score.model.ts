@@ -54,6 +54,11 @@ export interface AdvancedStatLine {
   blk_pct: number | null;
   /** Individual-only (a team is trivially 100% of its own usage) — always null for team subjects. */
   usg_pct: number | null;
+  // DOE (Dean Oliver's Evaluation) — ORtg/DRtg + the Four Factors composite.
+  // Same team+opponent-context caveat as the block above.
+  ortg: number | null;
+  drtg: number | null;
+  doe: number | null;
 }
 
 export interface StatSummary {
@@ -103,6 +108,14 @@ export interface GameLogRow extends PlayerBoxScore {
   opponent: string;
 }
 
+/** One game's PIE value for a player, for the "click PIE to see the trend" modal. */
+export interface PieLogRow {
+  game_id: number;
+  date: string;
+  opponent: string;
+  pie: number;
+}
+
 /** One team's aggregated per-game/advanced stats within a league+season, for ranking. */
 export interface TeamRanking {
   teamId: number;
@@ -110,6 +123,122 @@ export interface TeamRanking {
   games: number;
   perGame: Record<string, number>;
   advanced: AdvancedStatLine;
+  per: number | null;
+  impact: number | null;
+  pie: number | null;
+}
+
+/** One player's aggregated per-game/advanced stats within a league+season, for the leaderboard. */
+export interface PlayerLeaderboardEntry {
+  playerId: number;
+  playerName: string;
+  teamId: number;
+  teamName: string;
+  games: number;
+  perGame: Record<string, number>;
+  advanced: AdvancedStatLine;
+  per: number | null;
+  impact: number | null;
+  pie: number | null;
+}
+
+/** Both rosters' full stat lines for one saved game, for the shareable game report card. */
+export interface GameBoxScore {
+  gameId: number;
+  date: string;
+  leagueName: string;
+  seasonYear: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  homeRoster: PlayerBoxScore[];
+  awayRoster: PlayerBoxScore[];
+  homeTotals: Record<string, number>;
+  awayTotals: Record<string, number>;
+}
+
+/** One player across the whole app (not scoped to a team), for the player search on the Insights screen. */
+export interface PlayerListEntry {
+  id: number;
+  name: string;
+  teamId: number;
+  teamName: string;
+}
+
+/** One saved game, for the game picker on the Game Insights screen. */
+export interface GameListEntry {
+  gameId: number;
+  date: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  leagueName: string;
+  seasonYear: string;
+}
+
+/** One deterministic, rule-based observation about a game — no LLM involved, see electron/services/insights.js. */
+export interface GameInsight {
+  scope: 'team' | 'player';
+  team: 'home' | 'away';
+  playerName: string | null;
+  polarity: 'positive' | 'negative';
+  stat: string;
+  text: string;
+}
+
+export interface GameInsightsResult {
+  gameId: number;
+  date: string;
+  leagueName: string;
+  seasonYear: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  homeScore: number;
+  awayScore: number;
+  winner: 'home' | 'away' | 'tie';
+  insights: GameInsight[];
+}
+
+/** A strength/weakness observation vs a league average — used by both team and player scouting reports. */
+export interface ProfileInsight {
+  stat: string;
+  polarity: 'strength' | 'weakness';
+  text: string;
+}
+
+/** A fact about how a subject's own numbers differ in losses vs wins — the "how to beat them" angle. */
+export interface PatternInsight {
+  stat: string;
+  text: string;
+}
+
+export interface ScoutingKeyPlayer {
+  playerId: number;
+  playerName: string;
+  pts: number;
+  reb: number;
+  ast: number;
+  pie: number | null;
+}
+
+export interface TeamScoutingReport {
+  teamId: number;
+  teamName: string;
+  leagueName: string;
+  games: number;
+  wins: number;
+  losses: number;
+  profileInsights: ProfileInsight[];
+  keyPlayers: ScoutingKeyPlayer[];
+  lossPatternInsights: PatternInsight[];
+}
+
+export interface PlayerScoutingReport {
+  playerId: number;
+  playerName: string;
+  teamName: string;
+  leagueName: string;
+  games: number;
+  profileInsights: ProfileInsight[];
+  winVsLossInsights: PatternInsight[];
 }
 
 /** One competition's worth of a team's/player's stats, for the all-competitions breakdown. */
@@ -216,11 +345,19 @@ export interface BoxscoreApi {
   getPlayerStats(playerId: number): Promise<StatSummary>;
   getTeamStats(teamId: number): Promise<StatSummary>;
   getLeagueAverages(leagueId: number, seasonId: number): Promise<StatSummary>;
+  getLeaguePlayerAverages(leagueId: number, seasonId: number): Promise<StatSummary>;
   getLeagueTeamRankings(leagueId: number, seasonId: number): Promise<TeamRanking[]>;
+  getLeaguePlayerLeaderboard(leagueId: number, seasonId: number): Promise<PlayerLeaderboardEntry[]>;
+  getGameBoxScore(gameId: number): Promise<GameBoxScore | null>;
+  listGames(): Promise<GameListEntry[]>;
+  getGameInsights(gameId: number): Promise<GameInsightsResult | null>;
+  getTeamScoutingReport(teamId: number): Promise<TeamScoutingReport | null>;
+  getPlayerScoutingReport(playerId: number): Promise<PlayerScoutingReport | null>;
   getTeamAllCompetitions(teamId: number): Promise<AllCompetitionsSummary | null>;
   getPlayerAllCompetitions(playerId: number): Promise<AllCompetitionsSummary | null>;
   listTeams(): Promise<Team[]>;
   listPlayers(teamId: number): Promise<Player[]>;
+  listAllPlayers(): Promise<PlayerListEntry[]>;
 
   listLeagues(): Promise<League[]>;
   createLeague(league: { name: string; country?: string; tier?: string }): Promise<number>;
@@ -230,6 +367,7 @@ export interface BoxscoreApi {
 
   getPlayerGameLog(playerId: number): Promise<GameLogRow[]>;
   getTeamGameLog(teamId: number): Promise<GameLogRow[]>;
+  getPlayerPieLog(playerId: number): Promise<PieLogRow[]>;
 
   signup(email: string, password: string, profile: SignupProfile): Promise<{ id: string; email: string }>;
   login(email: string, password: string): Promise<{ id: string; email: string }>;
@@ -266,6 +404,7 @@ export interface BoxscoreApi {
     payload: ExtractedBoxScore | StatSummary,
     suggestedName?: string
   ): Promise<{ saved: boolean; filePath?: string }>;
+  exportImage(base64Png: string, suggestedName?: string): Promise<{ saved: boolean; filePath?: string }>;
 }
 
 declare global {

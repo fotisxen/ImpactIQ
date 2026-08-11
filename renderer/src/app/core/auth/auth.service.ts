@@ -1,5 +1,6 @@
 import { Injectable, computed, signal } from '@angular/core';
 import type { Organization, SignupProfile } from '../models/box-score.model';
+import { friendlyErrorMessage } from '../../shared/utils/error-message';
 
 export interface CurrentUser {
   id: string | null;
@@ -58,7 +59,7 @@ export class AuthService {
       this.setUser({ id: user.id, email: user.email, isGuest: false });
       return true;
     } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'Something went wrong.');
+      this.error.set(friendlyErrorMessage(err));
       return false;
     } finally {
       this.busy.set(false);

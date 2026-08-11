@@ -66,3 +66,12 @@ CREATE INDEX IF NOT EXISTS idx_box_scores_player ON box_scores(player_id);
 CREATE INDEX IF NOT EXISTS idx_box_scores_game ON box_scores(game_id);
 CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id);
 CREATE INDEX IF NOT EXISTS idx_teams_league ON teams(league_id);
+
+-- Caches OCR results by image hash so re-uploading the exact same photo
+-- (e.g. retrying after an app-side bug, not an OCR problem) never re-bills
+-- the Claude API for a call we've already paid for.
+CREATE TABLE IF NOT EXISTS ocr_cache (
+  image_hash TEXT PRIMARY KEY,
+  result_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);

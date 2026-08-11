@@ -5,6 +5,7 @@ import {
   GameLogRow,
   League,
   Player,
+  PlayerLeaderboardEntry,
   Season,
   StatSummary,
   Team,
@@ -41,6 +42,8 @@ export class DashboardService {
   readonly gameLog = signal<GameLogRow[]>([]);
   /** Every team in the selected league/season, ranked — only populated in 'league' mode. */
   readonly teamRankings = signal<TeamRanking[]>([]);
+  /** Every player in the selected league/season, ranked — only populated in 'league' mode. */
+  readonly playerLeaderboard = signal<PlayerLeaderboardEntry[]>([]);
 
   /** 'competition'-scope is the existing per-league view; 'all' combines every competition. Player/Team mode only. */
   readonly scope = signal<DashboardScope>('competition');
@@ -183,12 +186,14 @@ export class DashboardService {
   private async loadLeagueSummary(leagueId: number, seasonId: number): Promise<void> {
     this.loading.set(true);
     try {
-      const [summary, rankings] = await Promise.all([
+      const [summary, rankings, leaderboard] = await Promise.all([
         window.boxscoreApi.getLeagueAverages(leagueId, seasonId),
         window.boxscoreApi.getLeagueTeamRankings(leagueId, seasonId),
+        window.boxscoreApi.getLeaguePlayerLeaderboard(leagueId, seasonId),
       ]);
       this.primary.set(summary);
       this.teamRankings.set(rankings);
+      this.playerLeaderboard.set(leaderboard);
       this.gameLog.set([]);
     } finally {
       this.loading.set(false);
@@ -214,6 +219,13 @@ export class DashboardService {
     }
   }
 
+  /**
+   * A player's comparison baseline is "the average PLAYER in this league",
+   * a team's is "the average TEAM" — deliberately different endpoints, not
+   * the same one reused, since comparing a player's per-game counting stats
+   * against a team-scale average (~5x bigger) would be comparing different
+   * things entirely.
+   */
   private async refreshLeagueBaseline(): Promise<void> {
     if (this.mode() === 'league') {
       this.leagueBaseline.set(null);
@@ -225,7 +237,11 @@ export class DashboardService {
       this.leagueBaseline.set(null);
       return;
     }
-    this.leagueBaseline.set(await window.boxscoreApi.getLeagueAverages(leagueId, seasonId));
+    this.leagueBaseline.set(
+      this.mode() === 'player'
+        ? await window.boxscoreApi.getLeaguePlayerAverages(leagueId, seasonId)
+        : await window.boxscoreApi.getLeagueAverages(leagueId, seasonId)
+    );
   }
 
   private currentLeagueId(): number | null {
@@ -239,6 +255,7 @@ export class DashboardService {
     this.leagueBaseline.set(null);
     this.gameLog.set([]);
     this.teamRankings.set([]);
+    this.playerLeaderboard.set([]);
     this.allCompetitions.set(null);
   }
 }
