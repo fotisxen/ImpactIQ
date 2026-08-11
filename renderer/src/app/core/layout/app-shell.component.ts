@@ -20,6 +20,7 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
         <nav>
           <a routerLink="/home" routerLinkActive="active">Home</a>
           <a routerLink="/upload" routerLinkActive="active">Upload Photo</a>
+          <a routerLink="/import-pbp" routerLinkActive="active">Import Play-by-Play</a>
           <a routerLink="/manual-entry" routerLinkActive="active">Manual Entry</a>
           <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
           <a routerLink="/game-insights" routerLinkActive="active">Insights</a>

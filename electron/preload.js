@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   extractBoxScore: (base64Image, mediaType) =>
     ipcRenderer.invoke('ocr:extract-box-score', base64Image, mediaType),
 
+  // Local parsing of a play-by-play Excel export — no API call, free, unmetered.
+  extractPlayByPlay: (base64File) => ipcRenderer.invoke('pbp:extract', base64File),
+
   // Persist a reviewed/corrected box score.
   saveGame: (game) => ipcRenderer.invoke('db:save-game', game),
 
@@ -21,6 +24,8 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
     ipcRenderer.invoke('db:get-league-team-rankings', leagueId, seasonId),
   getLeaguePlayerLeaderboard: (leagueId, seasonId) =>
     ipcRenderer.invoke('db:get-league-player-leaderboard', leagueId, seasonId),
+  getLeagueImpactRatings: (leagueId, seasonId) =>
+    ipcRenderer.invoke('db:get-league-impact-ratings', leagueId, seasonId),
   getGameBoxScore: (gameId) => ipcRenderer.invoke('db:get-game-box-score', gameId),
   listGames: () => ipcRenderer.invoke('db:list-games'),
   getGameInsights: (gameId) => ipcRenderer.invoke('db:get-game-insights', gameId),

@@ -26,6 +26,11 @@ export const routes: Routes = [
           import('./features/upload/upload.component').then((m) => m.UploadComponent),
       },
       {
+        path: 'import-pbp',
+        loadComponent: () =>
+          import('./features/import-pbp/import-pbp.component').then((m) => m.ImportPbpComponent),
+      },
+      {
         path: 'manual-entry',
         loadComponent: () =>
           import('./features/manual-entry/manual-entry.component').then(

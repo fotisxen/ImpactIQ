@@ -32,6 +32,7 @@ import {
 } from '../../shared/utils/chart-theme';
 import {
   AdvancedStatLine,
+  ImpactRatingConfidence,
   PlayerLeaderboardEntry,
   StatSummary,
   TeamRanking,
@@ -244,6 +245,16 @@ interface Rankable {
               [clickable]="dash.mode() === 'player'"
               (tileClick)="openPieModal()"
             />
+          }
+          @if (summary.netRating !== null) {
+            <app-stat-tile
+              label="Net Rating"
+              [value]="numFmt(summary.netRating)"
+              [diff]="netRatingDiff(summary)"
+              [diffAgainst]="diffLabel()"
+            />
+          } @else if (dash.mode() === 'player') {
+            <app-stat-tile label="Net Rating" value="N/A" />
           }
         </div>
 
@@ -627,6 +638,52 @@ interface Rankable {
               </table>
             </div>
           </div>
+
+          <div class="table-card card">
+            <div class="rankings-header">
+              <h4>Impact Rating (real, from play-by-play only)</h4>
+            </div>
+            <p class="hint impact-note">
+              Our own RAPM — the same core technique LEBRON/EPM are built on (box score + adjusted plus-minus) —
+              computed only from games actually imported via play-by-play. We show one honest number instead of
+              two differently-labeled "LEBRON"/"EPM" figures, since we don't have the proprietary
+              tracking-data ingredient that actually tells those two apart. Needs real volume to mean anything:
+              treat "Low"/"Very low" confidence as noise, not signal — a rating only gets reliable after many
+              play-by-play games for that player, ideally a full season's worth.
+            </p>
+            <div class="table-scroll">
+              <table class="log-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Player</th>
+                    <th>Team</th>
+                    <th>Games w/ PBP</th>
+                    <th>Confidence</th>
+                    <th>Rating</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (r of dash.impactRatings(); track r.playerId; let i = $index) {
+                    <tr>
+                      <td>{{ i + 1 }}</td>
+                      <td>{{ r.playerName }}</td>
+                      <td>{{ r.teamName }}</td>
+                      <td>{{ r.gamesWithPbp }} / {{ r.totalGames }}</td>
+                      <td>
+                        <span class="badge" [class]="confidenceClass(r.confidence)">{{ confidenceText(r.confidence) }}</span>
+                      </td>
+                      <td>{{ r.rating !== null ? numFmt(r.rating) : 'N/A' }}</td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="6" class="hint">No games saved for this league/season yet.</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
         }
 
         @if (dash.mode() !== 'league' && dash.scope() !== 'all') {
@@ -796,6 +853,9 @@ interface Rankable {
       align-items: center;
       justify-content: space-between;
       gap: var(--space-3);
+    }
+    .impact-note {
+      line-height: 1.5;
     }
     .rankings-header select {
       background: var(--surface-raised);
@@ -1083,6 +1143,31 @@ export class DashboardComponent implements OnInit {
     const baseline = this.comparisonBaseline();
     if (!baseline || summary.pie === null || baseline.pie === null) return null;
     return (summary.pie - baseline.pie) * 100;
+  }
+
+  protected netRatingDiff(summary: StatSummary): number | null {
+    const baseline = this.comparisonBaseline();
+    if (!baseline || summary.netRating === null || baseline.netRating === null) return null;
+    return summary.netRating - baseline.netRating;
+  }
+
+  protected confidenceText(c: ImpactRatingConfidence): string {
+    switch (c) {
+      case 'none':
+        return 'No data';
+      case 'very_low':
+        return 'Very low';
+      case 'low':
+        return 'Low';
+      case 'medium':
+        return 'Medium';
+      case 'high':
+        return 'High';
+    }
+  }
+
+  protected confidenceClass(c: ImpactRatingConfidence): string {
+    return c === 'high' || c === 'medium' ? 'badge-positive' : '';
   }
 
   /** Diff for a non-percentage advanced-stat field (points-per-shot etc.) — no ×100 scaling. */

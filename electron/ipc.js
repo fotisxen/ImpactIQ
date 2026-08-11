@@ -2,6 +2,8 @@ const { ipcMain, dialog, shell } = require('electron');
 const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
 const { extractBoxScore } = require('./services/ocr');
+const { parsePlayByPlay } = require('./services/playByPlay');
+const { buildStints, computeRapm, confidenceLabel } = require('./services/rapm');
 const {
   sumRows,
   perGame,
@@ -12,6 +14,7 @@ const {
   ballHandlingStatLine,
   pie: computePIE,
   doeStatLine,
+  estimatePossessions,
 } = require('./services/statsEngine');
 const {
   buildTeamInsights,
@@ -66,6 +69,12 @@ function registerIpcHandlers(db, mainWindow) {
     );
     await recordPhotoUpload();
     return result;
+  });
+
+  // Local parsing only, no API call — never counts against the paid photo upload quota.
+  ipcMain.handle('pbp:extract', async (_event, base64File) => {
+    const buffer = Buffer.from(base64File, 'base64');
+    return parsePlayByPlay(buffer);
   });
 
   ipcMain.handle('auth:signup', (_event, { email, password, profile }) => signup(email, password, profile));
@@ -140,6 +149,7 @@ function registerIpcHandlers(db, mainWindow) {
 
       insertRoster(db, gameId, teamId, g.players || []);
       insertRoster(db, gameId, oppId, g.opponentPlayers || []);
+      if (g.events && g.events.length > 0) insertGameEvents(db, gameId, teamId, oppId, g.events);
       return gameId;
     });
 
@@ -370,10 +380,15 @@ function registerIpcHandlers(db, mainWindow) {
           teamAgg: teamAggCache.get(entry.teamId),
           oppAgg: oppAggCache.get(entry.teamId),
           leagueAgg,
+          hasPlayByPlayData: playerHasPlayByPlayData(db, playerId),
         }),
       };
     });
   });
+
+  ipcMain.handle('db:get-league-impact-ratings', (_event, leagueId, seasonId) =>
+    computeLeagueImpactRatings(db, leagueId, seasonId)
+  );
 
   ipcMain.handle('db:list-teams', () => db.prepare(`SELECT * FROM teams ORDER BY name`).all());
 
@@ -605,6 +620,18 @@ function buildGameInsights(db, gameId) {
   };
 }
 
+/** Whether ANY of a player's saved games came from a play-by-play import — the only source that records real +/-. */
+function playerHasPlayByPlayData(db, playerId) {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM box_scores bs
+       WHERE bs.player_id = ? AND EXISTS (SELECT 1 FROM game_events ge WHERE ge.game_id = bs.game_id)
+       LIMIT 1`
+    )
+    .get(playerId);
+  return !!row;
+}
+
 function computePlayerSummary(db, playerId) {
   const rows = db.prepare(`SELECT * FROM box_scores WHERE player_id = ?`).all(playerId);
   const player = db.prepare(`SELECT team_id FROM players WHERE id = ?`).get(playerId);
@@ -613,7 +640,15 @@ function computePlayerSummary(db, playerId) {
   const teamAgg = teamAggregate(db, player.team_id);
   const oppAgg = opponentAggregate(db, player.team_id);
   const leagueAgg = leagueAggregate(db, team.league_id);
-  return buildStatSummary({ rows, games: rows.length, isTeam: false, teamAgg, oppAgg, leagueAgg });
+  return buildStatSummary({
+    rows,
+    games: rows.length,
+    isTeam: false,
+    teamAgg,
+    oppAgg,
+    leagueAgg,
+    hasPlayByPlayData: playerHasPlayByPlayData(db, playerId),
+  });
 }
 
 function computeTeamSummary(db, teamId) {
@@ -819,7 +854,7 @@ function leagueAggregate(db, leagueId) {
  * instead (its totals already sum both teams per game — see the /2 fix on
  * `db:get-league-averages`).
  */
-function buildStatSummary({ rows, games, isTeam, teamAgg, oppAgg, leagueAgg, perGameDivisor }) {
+function buildStatSummary({ rows, games, isTeam, teamAgg, oppAgg, leagueAgg, perGameDivisor, hasPlayByPlayData }) {
   const totals = sumRows(rows);
   const divisor = perGameDivisor ?? games;
   const perGameAvg = perGame(totals, divisor || 1);
@@ -862,7 +897,38 @@ function buildStatSummary({ rows, games, isTeam, teamAgg, oppAgg, leagueAgg, per
     }),
     impact: impactScore(perGameAvg, leaguePerGameAvg, advanced.ts_pct, leagueAdvanced.ts_pct),
     pie: computePIE(totals, teamAgg.totals, oppAgg.totals),
+    netRating: computeNetRating({ isTeam, advanced, perGameAvg, teamAgg, hasPlayByPlayData }),
   };
+}
+
+/**
+ * Net Rating — point differential per 100 possessions.
+ *
+ * For a team this is exact: ORtg − DRtg, both already computed from real
+ * points scored/allowed. For an individual player it's built from their
+ * *measured* +/- (real, only recorded by a play-by-play import — photo and
+ * manual entries never capture who was on court) normalized by an estimate
+ * of how many of the team's possessions they were on court for, prorated
+ * by their share of a regulation 40-minute game since this app only stores
+ * a final per-game +/- rather than full lineup-stint timing.
+ *
+ * `hasPlayByPlayData` is the honesty gate: a player who has never had a
+ * single play-by-play game returns null (shown as "no data" in the UI),
+ * never a fabricated 0 — 0 would silently look like "measured, no impact"
+ * when the truth is "never measured at all".
+ */
+function computeNetRating({ isTeam, advanced, perGameAvg, teamAgg, hasPlayByPlayData }) {
+  if (isTeam) {
+    if (advanced.ortg === null || advanced.drtg === null) return null;
+    return advanced.ortg - advanced.drtg;
+  }
+  if (!hasPlayByPlayData) return null;
+
+  const GAME_DURATION_MINUTES = 40; // FIBA/EuroLeague regulation length; doesn't account for overtime
+  const teamPossessionsPerGame = estimatePossessions(teamAgg.totals) / (teamAgg.games || 1);
+  const onCourtShare = (perGameAvg.min ?? 0) / GAME_DURATION_MINUTES;
+  const onCourtPossessions = teamPossessionsPerGame * onCourtShare;
+  return onCourtPossessions > 0 ? ((perGameAvg.plus_minus ?? 0) / onCourtPossessions) * 100 : null;
 }
 
 /**
@@ -897,6 +963,7 @@ function buildCombinedSummary(rows, games) {
     per: null,
     impact: null,
     pie: null,
+    netRating: null,
   };
 }
 
@@ -913,6 +980,79 @@ function leagueSeasonRows(db, leagueId, seasonId) {
     .all(leagueId, seasonId);
 }
 
+/**
+ * The league-wide "Impact Rating" — a real RAPM computed only from games
+ * that were actually imported via play-by-play, blended with nothing and
+ * never extrapolated onto games that don't have that data. A player who's
+ * only ever been entered by photo/manual gets `rapm: null` here, not a
+ * fabricated number — see confidenceLabel for how the confidence tiers map
+ * to how many play-by-play games actually back a given rating.
+ */
+function computeLeagueImpactRatings(db, leagueId, seasonId) {
+  const pbpGames = db
+    .prepare(
+      `SELECT g.id AS gameId, g.home_team_id AS homeTeamId, g.away_team_id AS awayTeamId
+       FROM games g
+       JOIN seasons s ON s.id = g.season_id
+       WHERE s.league_id = ? AND g.season_id = ?
+         AND EXISTS (SELECT 1 FROM game_events ge WHERE ge.game_id = g.id)`
+    )
+    .all(leagueId, seasonId);
+
+  const gamesData = pbpGames.map((g) => {
+    const events = db
+      .prepare(`SELECT * FROM game_events WHERE game_id = ? ORDER BY clock_seconds, sequence`)
+      .all(g.gameId);
+    const homeRows = db
+      .prepare(
+        `SELECT bs.* FROM box_scores bs JOIN players p ON p.id = bs.player_id WHERE bs.game_id = ? AND p.team_id = ?`
+      )
+      .all(g.gameId, g.homeTeamId);
+    const awayRows = db
+      .prepare(
+        `SELECT bs.* FROM box_scores bs JOIN players p ON p.id = bs.player_id WHERE bs.game_id = ? AND p.team_id = ?`
+      )
+      .all(g.gameId, g.awayTeamId);
+    const gameEndSeconds = events.length ? Math.max(...events.map((e) => e.clock_seconds)) : 0;
+    return {
+      stints: buildStints(events, g.homeTeamId, g.awayTeamId, gameEndSeconds),
+      homeTotals: sumRows(homeRows),
+      awayTotals: sumRows(awayRows),
+      gameDurationSeconds: gameEndSeconds,
+    };
+  });
+
+  const rapmByPlayer = computeRapm(gamesData);
+  const pbpGameIdSet = new Set(pbpGames.map((g) => g.gameId));
+
+  const byPlayer = new Map();
+  for (const row of leagueSeasonRows(db, leagueId, seasonId)) {
+    if (!byPlayer.has(row.player_id)) {
+      byPlayer.set(row.player_id, { playerName: row.player_name, teamName: row.team_name, gameIds: new Set() });
+    }
+    byPlayer.get(row.player_id).gameIds.add(row.game_id);
+  }
+
+  const round1 = (n) => Math.round(n * 10) / 10;
+  const results = [];
+  for (const [playerId, info] of byPlayer) {
+    const totalGames = info.gameIds.size;
+    const gamesWithPbp = [...info.gameIds].filter((id) => pbpGameIdSet.has(id)).length;
+    const hasRating = gamesWithPbp > 0 && rapmByPlayer.has(playerId);
+    results.push({
+      playerId,
+      playerName: info.playerName,
+      teamName: info.teamName,
+      totalGames,
+      gamesWithPbp,
+      rating: hasRating ? round1(rapmByPlayer.get(playerId)) : null,
+      confidence: confidenceLabel(gamesWithPbp),
+    });
+  }
+
+  return results.sort((a, b) => (b.rating ?? -999) - (a.rating ?? -999));
+}
+
 function insertRoster(db, gameId, teamId, players) {
   for (const p of players) {
     const playerId = upsertPlayer(db, p.name, teamId);
@@ -922,6 +1062,34 @@ function insertRoster(db, gameId, teamId, players) {
        VALUES
          (@gameId, @playerId, @min, @pts, @fgm, @fga, @tpm, @tpa, @ftm, @fta, @oreb, @dreb, @ast, @stl, @blk, @tov, @pf, @pfd, @plus_minus)`
     ).run({ gameId, playerId, pfd: 0, plus_minus: 0, ...p });
+  }
+}
+
+/**
+ * Persists the raw substitution/scoring timeline from a play-by-play
+ * import. Runs after insertRoster so every named player already exists —
+ * upsertPlayer here is just a lookup in practice, matching by the same
+ * name the parser produced (if the user renamed a player during review,
+ * an event for the old name would create a stray player row instead of
+ * matching — an acceptable edge case for how rarely that'll happen).
+ */
+function insertGameEvents(db, gameId, homeTeamId, awayTeamId, events) {
+  const insert = db.prepare(
+    `INSERT INTO game_events (game_id, team_id, player_id, clock_seconds, event_type, points, sequence)
+     VALUES (@gameId, @teamId, @playerId, @clockSeconds, @eventType, @points, @sequence)`
+  );
+  for (const e of events) {
+    const teamId = e.side === 'home' ? homeTeamId : awayTeamId;
+    const playerId = e.playerName ? upsertPlayer(db, e.playerName, teamId) : null;
+    insert.run({
+      gameId,
+      teamId,
+      playerId,
+      clockSeconds: e.clockSeconds,
+      eventType: e.type,
+      points: e.points ?? null,
+      sequence: e.sequence,
+    });
   }
 }
 

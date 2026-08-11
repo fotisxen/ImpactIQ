@@ -72,6 +72,14 @@ export interface StatSummary {
   impact: number | null;
   /** Player/Team Impact Estimate — % of all game statistical events, fully computable from box-score data. Null for the same reason as `per`. */
   pie: number | null;
+  /**
+   * Net Rating — point differential per 100 possessions. Exact (ORtg−DRtg) for
+   * a team. For a player, built from their real, measured +/- (only non-zero
+   * for games imported from play-by-play — photo/manual entries never record
+   * who was on court), prorated by their share of a 40-minute game since only
+   * a final per-game +/- is stored, not full lineup-stint timing.
+   */
+  netRating: number | null;
 }
 
 export interface League {
@@ -140,6 +148,26 @@ export interface PlayerLeaderboardEntry {
   per: number | null;
   impact: number | null;
   pie: number | null;
+}
+
+export type ImpactRatingConfidence = 'none' | 'very_low' | 'low' | 'medium' | 'high';
+
+/**
+ * One player's real, from-scratch RAPM-based "Impact Rating" — the same
+ * core technique LEBRON/EPM are built on (box score + adjusted plus-minus),
+ * computed only from games actually imported via play-by-play. `rating` is
+ * null, never a fabricated 0, when the player has no play-by-play games at
+ * all. `confidence` reflects how many play-by-play games actually back the
+ * number — treat 'very_low'/'low' as noise, not signal.
+ */
+export interface ImpactRatingEntry {
+  playerId: number;
+  playerName: string;
+  teamName: string;
+  totalGames: number;
+  gamesWithPbp: number;
+  rating: number | null;
+  confidence: ImpactRatingConfidence;
 }
 
 /** Both rosters' full stat lines for one saved game, for the shareable game report card. */
@@ -332,6 +360,23 @@ export interface SaveGamePayload {
   date: string;
   players: PlayerBoxScore[];
   opponentPlayers: PlayerBoxScore[];
+  /** Only present for play-by-play imports — the raw substitution/scoring timeline, stored for future on/off analysis. */
+  events?: GameEvent[];
+}
+
+/** One substitution or scoring event from a play-by-play import — the minimal primitives for a future on/off or RAPM calculation. */
+export interface GameEvent {
+  side: 'home' | 'away';
+  playerName: string | null;
+  clockSeconds: number;
+  type: 'sub_in' | 'sub_out' | 'score';
+  points: number | null;
+  sequence: number;
+}
+
+/** What extractPlayByPlay returns — a normal ExtractedBoxScore plus the raw event timeline. */
+export interface PbpExtractedBoxScore extends ExtractedBoxScore {
+  events: GameEvent[];
 }
 
 /**
@@ -341,6 +386,7 @@ export interface SaveGamePayload {
  */
 export interface BoxscoreApi {
   extractBoxScore(base64Image: string, mediaType: string): Promise<ExtractedBoxScore>;
+  extractPlayByPlay(base64File: string): Promise<PbpExtractedBoxScore>;
   saveGame(game: SaveGamePayload): Promise<number>;
   getPlayerStats(playerId: number): Promise<StatSummary>;
   getTeamStats(teamId: number): Promise<StatSummary>;
@@ -348,6 +394,7 @@ export interface BoxscoreApi {
   getLeaguePlayerAverages(leagueId: number, seasonId: number): Promise<StatSummary>;
   getLeagueTeamRankings(leagueId: number, seasonId: number): Promise<TeamRanking[]>;
   getLeaguePlayerLeaderboard(leagueId: number, seasonId: number): Promise<PlayerLeaderboardEntry[]>;
+  getLeagueImpactRatings(leagueId: number, seasonId: number): Promise<ImpactRatingEntry[]>;
   getGameBoxScore(gameId: number): Promise<GameBoxScore | null>;
   listGames(): Promise<GameListEntry[]>;
   getGameInsights(gameId: number): Promise<GameInsightsResult | null>;

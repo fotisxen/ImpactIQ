@@ -75,3 +75,22 @@ CREATE TABLE IF NOT EXISTS ocr_cache (
   result_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- Raw substitution/scoring timeline from a play-by-play import — only
+-- populated for games imported that way (photo/manual entries have no
+-- events). Deliberately the minimal primitives (who's on court, when the
+-- score changed) rather than a precomputed "lineup stints" shape, since
+-- that's derivable from these on demand and we don't yet know exactly what
+-- shape a future on/off or RAPM calculation will want.
+CREATE TABLE IF NOT EXISTS game_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  game_id INTEGER NOT NULL REFERENCES games(id),
+  team_id INTEGER NOT NULL REFERENCES teams(id),
+  player_id INTEGER REFERENCES players(id),
+  clock_seconds INTEGER NOT NULL,
+  event_type TEXT NOT NULL,   -- 'sub_in' | 'sub_out' | 'score'
+  points INTEGER,             -- for 'score' events: 2, 3, or 1
+  sequence INTEGER NOT NULL   -- preserves original event order for same-timestamp events
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_events_game ON game_events(game_id);

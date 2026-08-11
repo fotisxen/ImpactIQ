@@ -3,6 +3,7 @@ import { EntitiesService } from '../../core/data/entities.service';
 import {
   AllCompetitionsSummary,
   GameLogRow,
+  ImpactRatingEntry,
   League,
   Player,
   PlayerLeaderboardEntry,
@@ -44,6 +45,8 @@ export class DashboardService {
   readonly teamRankings = signal<TeamRanking[]>([]);
   /** Every player in the selected league/season, ranked — only populated in 'league' mode. */
   readonly playerLeaderboard = signal<PlayerLeaderboardEntry[]>([]);
+  /** Real RAPM-based Impact Ratings, from play-by-play-imported games only — only populated in 'league' mode. */
+  readonly impactRatings = signal<ImpactRatingEntry[]>([]);
 
   /** 'competition'-scope is the existing per-league view; 'all' combines every competition. Player/Team mode only. */
   readonly scope = signal<DashboardScope>('competition');
@@ -186,14 +189,16 @@ export class DashboardService {
   private async loadLeagueSummary(leagueId: number, seasonId: number): Promise<void> {
     this.loading.set(true);
     try {
-      const [summary, rankings, leaderboard] = await Promise.all([
+      const [summary, rankings, leaderboard, impactRatings] = await Promise.all([
         window.boxscoreApi.getLeagueAverages(leagueId, seasonId),
         window.boxscoreApi.getLeagueTeamRankings(leagueId, seasonId),
         window.boxscoreApi.getLeaguePlayerLeaderboard(leagueId, seasonId),
+        window.boxscoreApi.getLeagueImpactRatings(leagueId, seasonId),
       ]);
       this.primary.set(summary);
       this.teamRankings.set(rankings);
       this.playerLeaderboard.set(leaderboard);
+      this.impactRatings.set(impactRatings);
       this.gameLog.set([]);
     } finally {
       this.loading.set(false);
@@ -256,6 +261,7 @@ export class DashboardService {
     this.gameLog.set([]);
     this.teamRankings.set([]);
     this.playerLeaderboard.set([]);
+    this.impactRatings.set([]);
     this.allCompetitions.set(null);
   }
 }
