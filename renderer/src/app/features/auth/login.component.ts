@@ -41,9 +41,9 @@ import { AuthService } from '../../core/auth/auth.service';
 
         <hr />
 
-        <button type="button" class="btn btn-secondary" (click)="continueAsGuest()">
+        <!-- <button type="button" class="btn btn-secondary" (click)="continueAsGuest()">
           Skip for now — try the app as a guest
-        </button>
+        </button> -->
         <p class="hint">
           Guest mode doesn't create an account. It just lets you click straight
           into the upload / manual entry / export flow to see how it works.

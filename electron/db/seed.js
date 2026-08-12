@@ -164,6 +164,94 @@ const LEAGUES = [
       'Niners Chemnitz', 'Ratiopharm Ulm', 'JL Bourg', 'London Lions', 'Budućnost', 'Panionios',
     ],
   },
+
+  // National cup competitions — one per country, alongside that country's
+  // league(s) above. Participant lists mirror each country's top-flight
+  // league for now (real domestic cups often also draw qualifiers from
+  // lower divisions, but the top-flight clubs are who's actually likely to
+  // have games entered here).
+  {
+    name: 'Greek Cup',
+    country: 'Greece',
+    tier: 'greek_cup',
+    teams: [
+      'AEK', 'Aris', 'Iraklis', 'Karditsa', 'Kolossos Rodou', 'Maroussi', 'Mykonos',
+      'Olympiacos', 'Panathinaikos', 'Panionios', 'PAOK', 'Peristeri', 'Promitheas Patras',
+    ],
+  },
+  {
+    name: 'Copa del Rey',
+    country: 'Spain',
+    tier: 'spanish_cup',
+    teams: [
+      'Real Madrid', 'FC Barcelona', 'Unicaja', 'Valencia Basket', 'Baskonia',
+      'Joventut Badalona', 'Girona', 'Manresa', 'Casademont Zaragoza', 'Coviran Granada',
+      'Gran Canaria', 'Hiopos Lleida', 'La Laguna Tenerife', 'MoraBanc Andorra', 'Burgos',
+      'Río Breogán', 'Bilbao Basket', 'UCAM Murcia',
+    ],
+  },
+  {
+    name: 'Coppa Italia',
+    country: 'Italy',
+    tier: 'italian_cup',
+    teams: [
+      'Olimpia Milano', 'Virtus Bologna', 'Reyer Venezia', 'Trapani Shark', 'Napoli Basket',
+      'Trento', 'Brescia', 'Cantù', 'Sassari', 'Tortona', 'Reggio Emilia', 'Treviso',
+      'Varese', 'Trieste', 'Udine',
+    ],
+  },
+  {
+    name: 'Turkish Cup',
+    country: 'Turkey',
+    tier: 'turkish_cup',
+    teams: [
+      'Fenerbahçe Beko', 'Anadolu Efes', 'Galatasaray', 'Beşiktaş Gain', 'Türk Telekom',
+      'Bahçeşehir Koleji', 'Tofaş', 'Bursaspor', 'Karşıyaka', 'Manisa Basket', 'Mersin MSK',
+      'Büyükçekmece', 'Petkim Spor', 'Safiport Erokspor', 'Trabzonspor', 'Merkezefendi Basket',
+    ],
+  },
+  {
+    name: 'Coupe de France',
+    country: 'France',
+    tier: 'french_cup',
+    teams: [
+      'AS Monaco', 'Paris Basketball', 'Nanterre 92', 'LDLC ASVEL', 'Cholet Basket', 'Le Mans',
+      'JL Bourg', 'SIG Strasbourg', 'Élan Chalon', 'SLUC Nancy', 'JDA Dijon', 'Boulazac',
+      'Limoges CSP', 'BCM Gravelines-Dunkerque', 'Saint-Quentin', 'ESSM Le Portel',
+    ],
+  },
+  {
+    name: 'BBL-Pokal',
+    country: 'Germany',
+    tier: 'german_cup',
+    teams: [
+      'Bamberg Baskets', 'Alba Berlin', 'Telekom Baskets Bonn', 'Löwen Braunschweig',
+      'Niners Chemnitz', 'Skyliners Frankfurt', 'Veolia Towers Hamburg',
+      'MLP Academics Heidelberg', 'Science City Jena', 'MHP Riesen Ludwigsburg',
+      'Syntainics MBC', 'Bayern Munich', 'EWE Baskets Oldenburg', 'Rostock Seawolves',
+      'Gladiators Trier', 'Ratiopharm Ulm', 'SC Rasta Vechta', 'Würzburg Baskets',
+    ],
+  },
+  {
+    name: 'LKL Cup',
+    country: 'Lithuania',
+    tier: 'lithuanian_cup',
+    teams: [
+      'Žalgiris', 'Rytas', 'Neptūnas', 'Lietkabelis', 'Juventus', 'Šiauliai', 'Nevėžis',
+      'Jonava', 'Gargždai',
+    ],
+  },
+  {
+    name: 'Israeli State Cup',
+    country: 'Israel',
+    tier: 'israeli_cup',
+    teams: [
+      'Maccabi Tel Aviv', 'Hapoel Tel Aviv', 'Hapoel Jerusalem', 'Bnei Herzliya',
+      'Hapoel Holon', "Hapoel HaEmek", 'Maccabi Rishon LeZion', "Hapoel Be'er Sheva",
+      'Maccabi Ironi Ramat Gan', 'Ironi Kiryat Ata', 'Ironi Ness Ziona',
+      'Hapoel Galil Elyon', 'Elitzur Netanya', "Maccabi Ironi Ra'anana",
+    ],
+  },
 ];
 
 /**
