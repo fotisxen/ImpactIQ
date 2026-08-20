@@ -35,6 +35,14 @@ function migrate(db) {
   if (!columns.has('plus_minus')) {
     db.exec(`ALTER TABLE box_scores ADD COLUMN plus_minus INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!columns.has('srj')) {
+    db.exec(`ALTER TABLE box_scores ADD COLUMN srj INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  const playerColumns = new Set(db.prepare(`PRAGMA table_info(players)`).all().map((c) => c.name));
+  if (!playerColumns.has('position')) {
+    db.exec(`ALTER TABLE players ADD COLUMN position TEXT`);
+  }
 
   // 'Dubai Basketball' was mistakenly seeded into the ABA League as well as
   // EuroLeague (it only actually plays in EuroLeague), which made team-name

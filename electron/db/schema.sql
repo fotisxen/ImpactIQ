@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS teams (
 CREATE TABLE IF NOT EXISTS players (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   team_id INTEGER NOT NULL REFERENCES teams(id),
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  position TEXT   -- 'PG' | 'SG' | 'SF' | 'PF' | 'C', optional/manual — nobody tracks this automatically
 );
 
 CREATE TABLE IF NOT EXISTS games (
@@ -59,7 +60,8 @@ CREATE TABLE IF NOT EXISTS box_scores (
   tov INTEGER NOT NULL DEFAULT 0,
   pf INTEGER NOT NULL DEFAULT 0,
   pfd INTEGER NOT NULL DEFAULT 0,
-  plus_minus INTEGER NOT NULL DEFAULT 0
+  plus_minus INTEGER NOT NULL DEFAULT 0,
+  srj INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_box_scores_player ON box_scores(player_id);
@@ -88,8 +90,8 @@ CREATE TABLE IF NOT EXISTS game_events (
   team_id INTEGER NOT NULL REFERENCES teams(id),
   player_id INTEGER REFERENCES players(id),
   clock_seconds INTEGER NOT NULL,
-  event_type TEXT NOT NULL,   -- 'sub_in' | 'sub_out' | 'score'
-  points INTEGER,             -- for 'score' events: 2, 3, or 1
+  event_type TEXT NOT NULL,   -- 'sub_in' | 'sub_out' | 'score' | 'miss' | 'assist' | 'turnover_live' | 'turnover_dead'
+  points INTEGER,             -- for 'score'/'miss' events: 2, 3, or 1 (the shot's value, made or not)
   sequence INTEGER NOT NULL   -- preserves original event order for same-timestamp events
 );
 

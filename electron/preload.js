@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
     ipcRenderer.invoke('db:get-league-player-leaderboard', leagueId, seasonId),
   getLeagueImpactRatings: (leagueId, seasonId) =>
     ipcRenderer.invoke('db:get-league-impact-ratings', leagueId, seasonId),
+  getLeagueStandingsHistory: (leagueId, seasonId) =>
+    ipcRenderer.invoke('db:get-league-standings-history', leagueId, seasonId),
+  getGameWinProbability: (gameId) => ipcRenderer.invoke('db:get-game-win-probability', gameId),
   getGameBoxScore: (gameId) => ipcRenderer.invoke('db:get-game-box-score', gameId),
   listGames: () => ipcRenderer.invoke('db:list-games'),
   getGameInsights: (gameId) => ipcRenderer.invoke('db:get-game-insights', gameId),
@@ -49,6 +52,12 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   getPlayerGameLog: (playerId) => ipcRenderer.invoke('db:get-player-game-log', playerId),
   getTeamGameLog: (teamId) => ipcRenderer.invoke('db:get-team-game-log', teamId),
   getPlayerPieLog: (playerId) => ipcRenderer.invoke('db:get-player-pie-log', playerId),
+  getPlayerPerLog: (playerId) => ipcRenderer.invoke('db:get-player-per-log', playerId),
+  getTeamPerLog: (teamId) => ipcRenderer.invoke('db:get-team-per-log', teamId),
+  getPlayerGamesAllCompetitions: (playerId) =>
+    ipcRenderer.invoke('db:get-player-games-all-competitions', playerId),
+  getTeamGamesAllCompetitions: (teamId) =>
+    ipcRenderer.invoke('db:get-team-games-all-competitions', teamId),
 
   // Supabase-backed auth — email/password handled entirely by Supabase Auth;
   // `profile` carries the signup-only extras (name, role, organization, birth date).
@@ -98,4 +107,15 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   // Opens a native save dialog and writes a PNG report card image.
   exportImage: (base64Png, suggestedName) =>
     ipcRenderer.invoke('export:save-image', { base64Png, suggestedName }),
+
+  getTeamSeasonGameCount: (teamId, seasonId) =>
+    ipcRenderer.invoke('db:get-team-season-game-count', teamId, seasonId),
+
+  // Opens a native save dialog and writes the per-metric advanced report (Excel or PDF).
+  exportTeamAdvancedReport: (params) => ipcRenderer.invoke('export:team-advanced-report', params),
+
+  getTeamFourFactorsReport: (teamId, seasonId) =>
+    ipcRenderer.invoke('db:get-team-four-factors-report', teamId, seasonId),
+  updatePlayerPosition: (playerId, position) =>
+    ipcRenderer.invoke('db:update-player-position', playerId, position),
 });

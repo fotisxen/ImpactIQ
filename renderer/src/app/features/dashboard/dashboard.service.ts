@@ -3,13 +3,17 @@ import { EntitiesService } from '../../core/data/entities.service';
 import {
   AllCompetitionsSummary,
   GameLogRow,
-  ImpactRatingEntry,
   League,
+  LeagueStandingsHistory,
+  PerLogRow,
+  PieLogRow,
   Player,
+  PlayerCrossCompetitionGameRow,
   PlayerLeaderboardEntry,
   Season,
   StatSummary,
   Team,
+  TeamCrossCompetitionGameRow,
   TeamRanking,
 } from '../../core/models/box-score.model';
 import { PickerOption } from '../../shared/components/entity-picker.component';
@@ -45,8 +49,15 @@ export class DashboardService {
   readonly teamRankings = signal<TeamRanking[]>([]);
   /** Every player in the selected league/season, ranked — only populated in 'league' mode. */
   readonly playerLeaderboard = signal<PlayerLeaderboardEntry[]>([]);
-  /** Real RAPM-based Impact Ratings, from play-by-play-imported games only — only populated in 'league' mode. */
-  readonly impactRatings = signal<ImpactRatingEntry[]>([]);
+  /** Every team's rank at every date in the season, for the bump chart — only populated in 'league' mode. */
+  readonly standingsHistory = signal<LeagueStandingsHistory | null>(null);
+
+  /** Per-game PIE/PER trend, for the Overview charts — populated in Player/Team mode only. */
+  readonly pieTrendLog = signal<PieLogRow[]>([]);
+  readonly perTrendLog = signal<PerLogRow[]>([]);
+  /** Every game the current player/team has data for, across all competitions — for the Games tab. */
+  readonly playerAllGames = signal<PlayerCrossCompetitionGameRow[]>([]);
+  readonly teamAllGames = signal<TeamCrossCompetitionGameRow[]>([]);
 
   /** 'competition'-scope is the existing per-league view; 'all' combines every competition. Player/Team mode only. */
   readonly scope = signal<DashboardScope>('competition');
@@ -158,12 +169,18 @@ export class DashboardService {
   private async loadPlayer(playerId: number): Promise<void> {
     this.loading.set(true);
     try {
-      const [summary, log] = await Promise.all([
+      const [summary, log, pieTrend, perTrend, allGames] = await Promise.all([
         window.boxscoreApi.getPlayerStats(playerId),
         window.boxscoreApi.getPlayerGameLog(playerId),
+        window.boxscoreApi.getPlayerPieLog(playerId),
+        window.boxscoreApi.getPlayerPerLog(playerId),
+        window.boxscoreApi.getPlayerGamesAllCompetitions(playerId),
       ]);
       this.primary.set(summary);
       this.gameLog.set(log);
+      this.pieTrendLog.set(pieTrend);
+      this.perTrendLog.set(perTrend);
+      this.playerAllGames.set(allGames);
 
       const teamId = this.selectedTeamId();
       if (teamId !== null) this.teamBaseline.set(await window.boxscoreApi.getTeamStats(teamId));
@@ -175,12 +192,16 @@ export class DashboardService {
   private async loadTeam(teamId: number): Promise<void> {
     this.loading.set(true);
     try {
-      const [summary, log] = await Promise.all([
+      const [summary, log, perTrend, allGames] = await Promise.all([
         window.boxscoreApi.getTeamStats(teamId),
         window.boxscoreApi.getTeamGameLog(teamId),
+        window.boxscoreApi.getTeamPerLog(teamId),
+        window.boxscoreApi.getTeamGamesAllCompetitions(teamId),
       ]);
       this.primary.set(summary);
       this.gameLog.set(log);
+      this.perTrendLog.set(perTrend);
+      this.teamAllGames.set(allGames);
     } finally {
       this.loading.set(false);
     }
@@ -189,16 +210,16 @@ export class DashboardService {
   private async loadLeagueSummary(leagueId: number, seasonId: number): Promise<void> {
     this.loading.set(true);
     try {
-      const [summary, rankings, leaderboard, impactRatings] = await Promise.all([
+      const [summary, rankings, leaderboard, standingsHistory] = await Promise.all([
         window.boxscoreApi.getLeagueAverages(leagueId, seasonId),
         window.boxscoreApi.getLeagueTeamRankings(leagueId, seasonId),
         window.boxscoreApi.getLeaguePlayerLeaderboard(leagueId, seasonId),
-        window.boxscoreApi.getLeagueImpactRatings(leagueId, seasonId),
+        window.boxscoreApi.getLeagueStandingsHistory(leagueId, seasonId),
       ]);
       this.primary.set(summary);
       this.teamRankings.set(rankings);
       this.playerLeaderboard.set(leaderboard);
-      this.impactRatings.set(impactRatings);
+      this.standingsHistory.set(standingsHistory);
       this.gameLog.set([]);
     } finally {
       this.loading.set(false);
@@ -261,7 +282,23 @@ export class DashboardService {
     this.gameLog.set([]);
     this.teamRankings.set([]);
     this.playerLeaderboard.set([]);
-    this.impactRatings.set([]);
+    this.standingsHistory.set(null);
     this.allCompetitions.set(null);
+    this.pieTrendLog.set([]);
+    this.perTrendLog.set([]);
+    this.playerAllGames.set([]);
+    this.teamAllGames.set([]);
+  }
+
+  /** Navigates from the Team Roster tab straight to Player mode, pre-filtered for that player — same state as filtering manually. */
+  async viewPlayerFromRoster(playerId: number): Promise<void> {
+    const teamId = this.selectedTeamId();
+    const team = this.teams().find((t) => t.id === teamId);
+    if (teamId === null || !team) return;
+    this.mode.set('player');
+    this.scope.set('competition');
+    await this.selectLeague(team.league_id);
+    await this.selectTeam(teamId);
+    await this.selectPlayer(playerId);
   }
 }

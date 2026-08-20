@@ -33,6 +33,8 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
       border-radius: var(--radius-lg);
       padding: var(--space-4) var(--space-5);
       min-width: 0;
+      /* Reserves room for the "vs league" diff line even when this tile has none, so tiles stay the same height whether or not a comparison is available. */
+      min-height: 6.25rem;
     }
     .tile.clickable {
       cursor: pointer;

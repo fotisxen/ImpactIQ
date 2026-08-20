@@ -39,6 +39,7 @@ function emptyPlayerStat(name) {
     pf: 0,
     pfd: 0,
     plus_minus: 0,
+    srj: 0,
   };
 }
 
@@ -120,7 +121,16 @@ async function parsePlayByPlay(buffer) {
   const away = new TeamState(awayTeamName);
   let lastClockSeconds = 0;
   let score = { home: 0, away: 0 };
-  /** Raw substitution/scoring timeline — the minimal primitives for a future on/off or RAPM calculation. */
+  /**
+   * Raw substitution/shot-attempt timeline — the primitives for on/off,
+   * RAPM, luck-adjustment, and Four Factors calculations. `type: 'miss'`
+   * events (alongside 'score') give a team's real FGA/FTA, not just makes.
+   * `'assist'` events let a made shot be linked back to who passed it
+   * (same team, same clock second) for Assisted FG%. `'turnover_live'` vs
+   * `'turnover_dead'` preserve whether a turnover left the ball live for a
+   * fast break (bad pass/mishandle) or stopped play (out of bounds,
+   * offensive foul) — needed for Live-ball TOV%.
+   */
   const events = [];
   let sequence = 0;
 
@@ -192,6 +202,8 @@ async function parsePlayByPlay(buffer) {
       const points = Number((missedShot || blockedAttempt)[1]);
       row.fga += 1;
       if (points === 3) row.tpa += 1;
+      if (blockedAttempt) row.srj += 1;
+      pushEvent(team, displayName, atSeconds, 'miss', points);
       return;
     }
     if (/^made a free throw/i.test(action)) {
@@ -204,6 +216,7 @@ async function parsePlayByPlay(buffer) {
     }
     if (/^missed a free throw/i.test(action)) {
       row.fta += 1;
+      pushEvent(team, displayName, atSeconds, 'miss', 1);
       return;
     }
     if (/^made a defensive rebound$/i.test(action)) {
@@ -216,6 +229,7 @@ async function parsePlayByPlay(buffer) {
     }
     if (/^made an assist$/i.test(action)) {
       row.ast += 1;
+      pushEvent(team, displayName, atSeconds, 'assist');
       return;
     }
     if (/^perfomed a steal$|^performed a steal$/i.test(action)) {
@@ -226,13 +240,25 @@ async function parsePlayByPlay(buffer) {
       row.blk += 1;
       return;
     }
-    if (/^made a turnover in ball handling$|^made a bad pass$|^passed the ball out of bounds$/i.test(action)) {
+    // Live-ball turnovers (bad pass, mishandle) leave the ball loose for the
+    // defense to run out on immediately; "passed out of bounds" and offensive
+    // fouls stop play instead — that live/dead distinction is what
+    // Live-ball TOV% (Four Factors page) needs, so it's tracked as a
+    // separate game_events type rather than collapsed into one 'tov' count.
+    if (/^made a turnover in ball handling$|^made a bad pass$/i.test(action)) {
       row.tov += 1;
+      pushEvent(team, displayName, atSeconds, 'turnover_live');
+      return;
+    }
+    if (/^passed the ball out of bounds$/i.test(action)) {
+      row.tov += 1;
+      pushEvent(team, displayName, atSeconds, 'turnover_dead');
       return;
     }
     if (/^made an offensive foul$/i.test(action)) {
       row.tov += 1;
       row.pf += 1;
+      pushEvent(team, displayName, atSeconds, 'turnover_dead');
       return;
     }
     const foulOn = /^commited a personal foul on \((\d+)\)\s*(.+)$/i.exec(action);

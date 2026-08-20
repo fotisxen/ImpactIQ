@@ -50,6 +50,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'four-factors',
+        loadComponent: () =>
+          import('./features/four-factors/four-factors.component').then(
+            (m) => m.FourFactorsComponent
+          ),
+      },
+      {
         path: 'account',
         loadComponent: () =>
           import('./features/account/account.component').then((m) => m.AccountComponent),

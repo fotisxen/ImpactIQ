@@ -14,6 +14,13 @@ export const chartPalette = {
   surfaceRaised: '#171c27',
 } as const;
 
+/** A distinct-enough rotation for charts that need one color per team/player rather than a fixed 2-3 series. */
+export const categoricalPalette = [
+  '#ff7a29', '#3aa0ff', '#35d07f', '#e0c048', '#c774e8',
+  '#ff5c8a', '#4dd0e1', '#ffb74d', '#9575cd', '#81c784',
+  '#f06292', '#64b5f6', '#a1887f', '#dce775', '#ba68c8',
+] as const;
+
 export const baseChartOptions: ChartOptions<'bar' | 'line'> = {
   responsive: true,
   maintainAspectRatio: false,
@@ -76,6 +83,31 @@ export const radarChartOptions: ChartOptions<'radar'> = {
   plugins: { legend: legendStyle, tooltip: tooltipStyle },
 };
 
+/** Opta-style percentile radar — every axis is a 0-100 percentile rank within the league, so shape is directly comparable across players regardless of stat scale. */
+export const percentileRadarChartOptions: ChartOptions<'radar'> = {
+  responsive: true,
+  maintainAspectRatio: false,
+  scales: {
+    r: {
+      angleLines: { color: chartPalette.grid },
+      grid: { color: chartPalette.grid },
+      pointLabels: { color: chartPalette.textMuted, font: { size: 12 } },
+      ticks: { color: chartPalette.textMuted, backdropColor: 'transparent', font: { size: 10 }, stepSize: 20 },
+      min: 0,
+      max: 100,
+    },
+  },
+  plugins: {
+    legend: legendStyle,
+    tooltip: {
+      ...tooltipStyle,
+      callbacks: {
+        label: (ctx) => `${ctx.label}: ${ctx.formattedValue}th percentile`,
+      },
+    },
+  },
+};
+
 export const doughnutChartOptions: ChartOptions<'doughnut'> = {
   responsive: true,
   maintainAspectRatio: false,
@@ -95,6 +127,83 @@ export const polarAreaChartOptions: ChartOptions<'polarArea'> = {
     },
   },
   plugins: { legend: legendStyle, tooltip: tooltipStyle },
+};
+
+/** Bump chart — team rank over time. Y-axis reversed so rank 1 sits at the top, like a real standings bump chart. */
+export const bumpChartOptions: ChartOptions<'line'> = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode: 'nearest', intersect: false },
+  scales: {
+    x: {
+      ticks: { color: chartPalette.textMuted, font: { size: 10 }, maxRotation: 0 },
+      grid: { display: false },
+      border: { color: chartPalette.grid },
+    },
+    y: {
+      reverse: true,
+      min: 1,
+      ticks: { color: chartPalette.textMuted, font: { size: 11 }, stepSize: 1, precision: 0 },
+      grid: { color: chartPalette.grid },
+      border: { display: false },
+      title: { display: true, text: 'Rank', color: chartPalette.textMuted },
+    },
+  },
+  plugins: { legend: legendStyle, tooltip: tooltipStyle },
+};
+
+/** Win probability over the course of one game — a filled area from 0-100%, home team's perspective. */
+export const winProbabilityChartOptions: ChartOptions<'line'> = {
+  responsive: true,
+  maintainAspectRatio: false,
+  scales: {
+    x: {
+      ticks: { color: chartPalette.textMuted, font: { size: 10 } },
+      grid: { display: false },
+      border: { color: chartPalette.grid },
+      title: { display: true, text: 'Game clock', color: chartPalette.textMuted },
+    },
+    y: {
+      min: 0,
+      max: 100,
+      ticks: {
+        color: chartPalette.textMuted,
+        font: { size: 11 },
+        callback: (v) => `${v}%`,
+      },
+      grid: { color: chartPalette.grid },
+      border: { display: false },
+    },
+  },
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      ...tooltipStyle,
+      callbacks: {
+        label: (ctx) => `${(ctx.raw as number).toFixed(0)}% win probability (estimate)`,
+      },
+    },
+  },
+};
+
+/** Ridgeline plot — each dataset is one subject's distribution curve, vertically offset. The Y-axis is a synthetic offset, not a real scale, so it's hidden. */
+export const ridgelineChartOptions: ChartOptions<'line'> = {
+  responsive: true,
+  maintainAspectRatio: false,
+  scales: {
+    x: {
+      ticks: { color: chartPalette.textMuted, font: { size: 11 } },
+      grid: { color: chartPalette.grid },
+      border: { color: chartPalette.grid },
+    },
+    y: {
+      display: false,
+    },
+  },
+  plugins: {
+    legend: { labels: { color: chartPalette.textMuted, font: { size: 11 }, usePointStyle: true } },
+    tooltip: { enabled: false },
+  },
 };
 
 export const bubbleChartOptions: ChartOptions<'bubble'> = {

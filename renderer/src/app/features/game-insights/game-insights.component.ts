@@ -8,12 +8,14 @@ import type {
   GameInsight,
   GameInsightsResult,
   GameListEntry,
+  GameWinProbability,
   PlayerListEntry,
   PlayerScoutingReport,
   Team,
   TeamScoutingReport,
 } from '../../core/models/box-score.model';
 import { ToastService } from '../../shared/services/toast.service';
+import { WinProbabilityChartComponent } from '../../shared/components/win-probability-chart.component';
 
 type Side = 'home' | 'away';
 type InsightsMode = 'game' | 'team' | 'player';
@@ -27,7 +29,7 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
 @Component({
   selector: 'app-game-insights',
   standalone: true,
-  imports: [FormsModule, SegmentedControlComponent],
+  imports: [FormsModule, SegmentedControlComponent, WinProbabilityChartComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="insights-page">
@@ -68,6 +70,14 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
             <h3>{{ r.homeTeamName }} <span class="score">{{ r.homeScore }}</span> — <span class="score">{{ r.awayScore }}</span> {{ r.awayTeamName }}</h3>
             <p class="hint">{{ r.date }} · {{ r.leagueName }} {{ r.seasonYear }}</p>
           </div>
+
+          @if (winProbability(); as wp) {
+            <app-win-probability-chart
+              [probability]="wp"
+              [homeTeamName]="r.homeTeamName"
+              [awayTeamName]="r.awayTeamName"
+            />
+          }
 
           <div class="team-columns">
             @for (side of sides; track side) {
@@ -388,6 +398,7 @@ export class GameInsightsComponent implements OnInit {
   protected readonly games = signal<GameListEntry[]>([]);
   protected readonly selectedGameId = signal<number | null>(null);
   protected readonly gameResult = signal<GameInsightsResult | null>(null);
+  protected readonly winProbability = signal<GameWinProbability | null>(null);
   protected readonly filteredGames = computed(() => {
     const q = this.gameSearch().trim().toLowerCase();
     const all = this.games();
@@ -439,9 +450,15 @@ export class GameInsightsComponent implements OnInit {
   protected async selectGame(gameId: number): Promise<void> {
     this.selectedGameId.set(gameId);
     this.gameResult.set(null);
+    this.winProbability.set(null);
     this.loading.set(true);
     try {
-      this.gameResult.set(await window.boxscoreApi.getGameInsights(gameId));
+      const [result, winProbability] = await Promise.all([
+        window.boxscoreApi.getGameInsights(gameId),
+        window.boxscoreApi.getGameWinProbability(gameId),
+      ]);
+      this.gameResult.set(result);
+      this.winProbability.set(winProbability);
     } catch (err) {
       this.toast.error(err instanceof Error ? err.message : 'Failed to load game insights.');
     } finally {

@@ -235,12 +235,17 @@ function pie(subjectRow, teamRow, oppRow) {
 function sumRows(rows) {
   const numericKeys = [
     'min', 'pts', 'fgm', 'fga', 'tpm', 'tpa', 'ftm', 'fta',
-    'oreb', 'dreb', 'ast', 'stl', 'blk', 'tov', 'pf', 'pfd', 'plus_minus',
+    'oreb', 'dreb', 'ast', 'stl', 'blk', 'tov', 'pf', 'pfd', 'plus_minus', 'srj',
   ];
+  // Seeded with every key at 0 up front — .reduce's initial value would
+  // otherwise stay `{}` for an empty `rows` (e.g. a team with no opponent
+  // box score entered), leaving every downstream formula reading `undefined`
+  // and silently producing NaN instead of an honest 0.
+  const zeroed = Object.fromEntries(numericKeys.map((k) => [k, 0]));
   return rows.reduce((acc, row) => {
-    for (const key of numericKeys) acc[key] = (acc[key] || 0) + (row[key] || 0);
+    for (const key of numericKeys) acc[key] += row[key] || 0;
     return acc;
-  }, {});
+  }, zeroed);
 }
 
 /** Divides every numeric field of a summed row by a game count, for per-game averages */

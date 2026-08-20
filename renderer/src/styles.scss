@@ -60,6 +60,42 @@
 }
 
 /* ==========================================================================
+   Design tokens — light theme override (toggled via [data-theme='light']
+   on <html>, see ThemeService). Same custom-property names, light values.
+   ========================================================================== */
+:root[data-theme='light'] {
+  --bg: #f5f6f9;
+  --surface: #ffffff;
+  --surface-raised: #f0f1f5;
+  --surface-hover: #e7e9ef;
+  --border: #dde1e8;
+  --border-strong: #c7ccd6;
+
+  --text: #1a1d24;
+  --text-muted: #5b6479;
+  --text-faint: #8b94a8;
+
+  --accent: #ff7a29;
+  --accent-hover: #e8691c;
+  --accent-muted: rgba(255, 122, 41, 0.12);
+  --accent-text: #1a0d02;
+
+  --accent-2: #1c7ed6;
+  --accent-2-muted: rgba(28, 126, 214, 0.12);
+
+  --positive: #1e9d5c;
+  --positive-muted: rgba(30, 157, 92, 0.12);
+  --negative: #d43f3f;
+  --negative-muted: rgba(212, 63, 63, 0.12);
+
+  --shadow-sm: 0 1px 2px rgba(20, 24, 33, 0.06);
+  --shadow-md: 0 4px 16px rgba(20, 24, 33, 0.08);
+  --shadow-lg: 0 12px 32px rgba(20, 24, 33, 0.12);
+
+  color-scheme: light;
+}
+
+/* ==========================================================================
    Reset
    ========================================================================== */
 *,

@@ -17,6 +17,7 @@ export interface PlayerBoxScore {
   pf: number;
   pfd: number;
   plus_minus: number;
+  srj: number;
 }
 
 export interface ExtractedBoxScore {
@@ -124,6 +125,86 @@ export interface PieLogRow {
   pie: number;
 }
 
+/** One game's PER value for a player — that single game's box score run through the season's rate constants. */
+export interface PerLogRow {
+  game_id: number;
+  date: string;
+  opponent: string;
+  per: number | null;
+}
+
+/** One game a player has data for, flattened across every league/cup they appear in — for the Player "Games" tab. */
+export interface PlayerCrossCompetitionGameRow {
+  game_id: number;
+  date: string;
+  leagueName: string;
+  opponent: string;
+  pts: number;
+  reb: number;
+  ast: number;
+}
+
+/** One game a team has data for, flattened across every league/cup it appears in — for the Team "Games" tab. */
+export interface TeamCrossCompetitionGameRow {
+  game_id: number;
+  date: string;
+  leagueName: string;
+  opponent: string;
+  teamPts: number;
+  oppPts: number;
+  won: boolean;
+}
+
+/**
+ * One metric on the Four Factors page — never a fabricated number standing
+ * in for missing data. `available: false` means `value` is always null;
+ * `reason` explains why (e.g. needs shot-location/tracking data this app's
+ * three input methods can't produce, or needs a play-by-play import that
+ * hasn't happened yet for this team/season).
+ */
+export interface FourFactorsMetric {
+  label: string;
+  value: number | null;
+  available: boolean;
+  isPercent: boolean;
+  reason?: string;
+}
+
+/** A distinct 5-man on-court unit and its combined minutes/net rating, from PBP-imported games only. */
+export interface LineupCombo {
+  playerNames: string[];
+  minutes: number;
+  netRatingPer100: number | null;
+}
+
+/** Context Metrics' "Lineup Combinations" entry — either a populated list (PBP data exists) or the same N/A shape as every other metric. */
+export type LineupCombosMetric = FourFactorsMetric & { lineups?: LineupCombo[] };
+
+/** One weighted Four Factors combo card (Shooting/Ball Handling/Rebounding/FT Rate) — the factor itself plus its blended sub-metrics. */
+export interface FourFactorsCombo {
+  label: string;
+  weightPct: number;
+  primary: FourFactorsMetric;
+  subMetrics: FourFactorsMetric[];
+}
+
+export interface FourFactorsRosterPlayer {
+  playerId: number;
+  playerName: string;
+  position: string | null;
+}
+
+/** The Four Factors page's full report for one team/season. */
+export interface TeamFourFactorsReport {
+  teamName: string;
+  seasonYear: string;
+  primaryMetrics: FourFactorsMetric[];
+  contextMetrics: LineupCombosMetric[];
+  strategicMetrics: FourFactorsMetric[];
+  combos: FourFactorsCombo[];
+  roster: FourFactorsRosterPlayer[];
+}
+
 /** One team's aggregated per-game/advanced stats within a league+season, for ranking. */
 export interface TeamRanking {
   teamId: number;
@@ -168,6 +249,25 @@ export interface ImpactRatingEntry {
   gamesWithPbp: number;
   rating: number | null;
   confidence: ImpactRatingConfidence;
+}
+
+/** Every team's rank at every date across a season — the raw material for a bump chart. */
+export interface LeagueStandingsHistory {
+  dates: string[];
+  teams: { teamId: number; teamName: string; ranks: (number | null)[] }[];
+}
+
+/**
+ * A generic, non-calibrated win-probability estimate across one game's real
+ * score timeline — only available for games with play-by-play data. Not a
+ * model fitted on this league's own historical outcomes (not enough games
+ * for that yet), just a standard logistic curve from score margin and time
+ * remaining. Treat as illustrative, not precise.
+ */
+export interface GameWinProbability {
+  gameId: number;
+  gameDurationSeconds: number;
+  points: { clockSeconds: number; homeWinProb: number }[];
 }
 
 /** Both rosters' full stat lines for one saved game, for the shareable game report card. */
@@ -364,12 +464,18 @@ export interface SaveGamePayload {
   events?: GameEvent[];
 }
 
-/** One substitution or scoring event from a play-by-play import — the minimal primitives for a future on/off or RAPM calculation. */
+/**
+ * One substitution or shot-attempt event from a play-by-play import — the
+ * primitives for a future on/off, RAPM, or luck-adjustment calculation.
+ * `'miss'` (a missed FG/FT) is tracked alongside `'score'` (a made one) so a
+ * team's real shot attempts while a lineup was on court are derivable, not
+ * just its makes.
+ */
 export interface GameEvent {
   side: 'home' | 'away';
   playerName: string | null;
   clockSeconds: number;
-  type: 'sub_in' | 'sub_out' | 'score';
+  type: 'sub_in' | 'sub_out' | 'score' | 'miss' | 'assist' | 'turnover_live' | 'turnover_dead';
   points: number | null;
   sequence: number;
 }
@@ -395,6 +501,8 @@ export interface BoxscoreApi {
   getLeagueTeamRankings(leagueId: number, seasonId: number): Promise<TeamRanking[]>;
   getLeaguePlayerLeaderboard(leagueId: number, seasonId: number): Promise<PlayerLeaderboardEntry[]>;
   getLeagueImpactRatings(leagueId: number, seasonId: number): Promise<ImpactRatingEntry[]>;
+  getLeagueStandingsHistory(leagueId: number, seasonId: number): Promise<LeagueStandingsHistory>;
+  getGameWinProbability(gameId: number): Promise<GameWinProbability | null>;
   getGameBoxScore(gameId: number): Promise<GameBoxScore | null>;
   listGames(): Promise<GameListEntry[]>;
   getGameInsights(gameId: number): Promise<GameInsightsResult | null>;
@@ -415,6 +523,10 @@ export interface BoxscoreApi {
   getPlayerGameLog(playerId: number): Promise<GameLogRow[]>;
   getTeamGameLog(teamId: number): Promise<GameLogRow[]>;
   getPlayerPieLog(playerId: number): Promise<PieLogRow[]>;
+  getPlayerPerLog(playerId: number): Promise<PerLogRow[]>;
+  getTeamPerLog(teamId: number): Promise<PerLogRow[]>;
+  getPlayerGamesAllCompetitions(playerId: number): Promise<PlayerCrossCompetitionGameRow[]>;
+  getTeamGamesAllCompetitions(teamId: number): Promise<TeamCrossCompetitionGameRow[]>;
 
   signup(email: string, password: string, profile: SignupProfile): Promise<{ id: string; email: string }>;
   login(email: string, password: string): Promise<{ id: string; email: string }>;
@@ -452,6 +564,17 @@ export interface BoxscoreApi {
     suggestedName?: string
   ): Promise<{ saved: boolean; filePath?: string }>;
   exportImage(base64Png: string, suggestedName?: string): Promise<{ saved: boolean; filePath?: string }>;
+
+  getTeamSeasonGameCount(teamId: number, seasonId: number): Promise<number>;
+  exportTeamAdvancedReport(params: {
+    format: 'excel' | 'pdf';
+    teamId: number;
+    seasonId: number;
+    throughGame: number;
+  }): Promise<{ saved: boolean; filePath?: string }>;
+
+  getTeamFourFactorsReport(teamId: number, seasonId: number): Promise<TeamFourFactorsReport | null>;
+  updatePlayerPosition(playerId: number, position: string | null): Promise<{ saved: boolean }>;
 }
 
 declare global {

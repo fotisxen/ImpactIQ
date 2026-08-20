@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../auth/auth.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { ThemeService } from '../theme/theme.service';
 import { ToastHostComponent } from '../../shared/components/toast.component';
 import { SubscriptionGateComponent } from '../../shared/components/subscription-gate.component';
 
@@ -24,12 +25,21 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
           <a routerLink="/manual-entry" routerLinkActive="active">Manual Entry</a>
           <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
           <a routerLink="/game-insights" routerLinkActive="active">Insights</a>
+          <a routerLink="/four-factors" routerLinkActive="active">Four Factors</a>
           <a routerLink="/account" routerLinkActive="active">Account</a>
         </nav>
       </aside>
 
       <div class="main">
         <header class="topbar">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm theme-toggle"
+            (click)="theme.toggle()"
+            [attr.aria-label]="theme.theme() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+          >
+            {{ theme.theme() === 'dark' ? '🌙 Dark' : '☀️ Light' }}
+          </button>
           @if (auth.currentUser(); as u) {
             @if (u.isGuest) {
               <span class="badge">Guest</span>
@@ -144,6 +154,7 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
 })
 export class AppShellComponent {
   protected readonly auth = inject(AuthService);
+  protected readonly theme = inject(ThemeService);
   private readonly subscription = inject(SubscriptionService);
   private readonly router = inject(Router);
 
