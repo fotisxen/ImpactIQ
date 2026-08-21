@@ -367,6 +367,8 @@ export interface PlayerScoutingReport {
   games: number;
   profileInsights: ProfileInsight[];
   winVsLossInsights: PatternInsight[];
+  /** Advanced metrics whose season trend doesn't match the playing-time trend — e.g. eFG% rising with flat minutes. Needs at least 5 games; silently empty otherwise. */
+  playingTimeInsights: PatternInsight[];
 }
 
 /** One competition's worth of a team's/player's stats, for the all-competitions breakdown. */

@@ -1,0 +1,775 @@
+<title>Impact IQ</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+  :root {
+    --bg: #f5f6f9;
+    --surface: #ffffff;
+    --surface-raised: #eef0f5;
+    --border: #dde1e8;
+    --border-strong: #c7ccd6;
+    --text: #14171f;
+    --text-muted: #565f74;
+    --text-faint: #8891a3;
+    --accent: #e8631a;
+    --accent-soft: #fdece0;
+    --accent-ink: #ffffff;
+    --positive: #1f9d5c;
+    --positive-soft: #e7f7ef;
+    --shadow: 0 1px 2px rgba(20, 23, 31, 0.05), 0 6px 20px rgba(20, 23, 31, 0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      --bg: #0b0e14;
+      --surface: #12161f;
+      --surface-raised: #171c27;
+      --border: #262d3d;
+      --border-strong: #333c52;
+      --text: #e9edf5;
+      --text-muted: #97a0b3;
+      --text-faint: #616b80;
+      --accent: #ff7a29;
+      --accent-soft: rgba(255, 122, 41, 0.14);
+      --accent-ink: #1a0d02;
+      --positive: #35d07f;
+      --positive-soft: rgba(53, 208, 127, 0.14);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 28px rgba(0, 0, 0, 0.35);
+    }
+  }
+  :root[data-theme='dark'] {
+    --bg: #0b0e14;
+    --surface: #12161f;
+    --surface-raised: #171c27;
+    --border: #262d3d;
+    --border-strong: #333c52;
+    --text: #e9edf5;
+    --text-muted: #97a0b3;
+    --text-faint: #616b80;
+    --accent: #ff7a29;
+    --accent-soft: rgba(255, 122, 41, 0.14);
+    --accent-ink: #1a0d02;
+    --positive: #35d07f;
+    --positive-soft: rgba(53, 208, 127, 0.14);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 28px rgba(0, 0, 0, 0.35);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1.25rem, 4vw, 2rem) 6rem;
+  }
+
+  h1, h2, h3, .eyebrow, .stat-name, .chip {
+    font-family: 'Oswald', 'Arial Narrow', sans-serif;
+    text-wrap: balance;
+  }
+
+  /* ---------- Header ---------- */
+  .doc-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    padding-bottom: 2.25rem;
+    margin-bottom: 2.75rem;
+    border-bottom: 3px solid var(--text);
+  }
+  .doc-kicker {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .doc-kicker::before {
+    content: '';
+    width: 22px;
+    height: 2px;
+    background: var(--accent);
+  }
+  .doc-title {
+    font-size: clamp(2.2rem, 5.5vw, 3.1rem);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.05;
+    margin: 0;
+    color: var(--text);
+  }
+  .doc-title em {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .doc-sub {
+    font-family: 'Source Serif 4', serif;
+    font-size: 1.08rem;
+    color: var(--text-muted);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  /* ---------- Section scaffolding ---------- */
+  section { margin-bottom: 3.4rem; }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.85rem;
+    margin-bottom: 1.1rem;
+  }
+  .section-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+  .section-head h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin: 0;
+    color: var(--text);
+  }
+  .section-intro {
+    color: var(--text-muted);
+    max-width: 68ch;
+    margin: 0 0 1.4rem;
+  }
+  .lede {
+    font-size: 1.12rem;
+    max-width: 66ch;
+  }
+
+  /* ---------- Data-entry row ---------- */
+  .method-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+  .method-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.25rem 1.3rem;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .method-card.highlight {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .method-index {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .method-card h3 {
+    font-size: 1.02rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text);
+  }
+  .method-card p {
+    font-size: 0.92rem;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  /* ---------- Basic stat strip ---------- */
+  .basic-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 1.1rem 1.3rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
+  .chip {
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    padding: 0.3rem 0.65rem;
+    border-radius: 3px;
+    background: var(--surface-raised);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+  }
+  .chip.callout {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  /* ---------- Stat group + card ---------- */
+  .stat-group { margin-bottom: 1.6rem; }
+  .stat-group:last-child { margin-bottom: 0; }
+  .stat-group-head {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-bottom: 0.7rem;
+  }
+  .stat-group-head h3 {
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0;
+  }
+  .stat-group-head .rule {
+    flex: 1;
+    height: 1px;
+    background: var(--border-strong);
+  }
+  .stat-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .stat-card {
+    display: grid;
+    grid-template-columns: 128px 1fr;
+    gap: 1rem;
+    align-items: start;
+    padding: 0.85rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border-strong);
+    border-radius: 4px;
+  }
+  .stat-code-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .stat-code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-name {
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--text-faint);
+    line-height: 1.3;
+  }
+  .stat-body p {
+    margin: 0;
+    font-size: 0.94rem;
+    line-height: 1.55;
+    color: var(--text);
+  }
+  .stat-why {
+    margin-top: 0.4rem !important;
+    color: var(--text-muted) !important;
+    font-size: 0.88rem !important;
+  }
+  .stat-why::before {
+    content: 'Για τον προπονητή — ';
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  /* ---------- Highlight feature blocks (Impact Rating / Four Factors page) ---------- */
+  .feature-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.6rem 1.75rem;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  .feature-block h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .feature-block h3 .tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    background: var(--accent);
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+  }
+  .feature-block p { margin: 0; color: var(--text); }
+  .feature-block .fine { color: var(--text-muted); font-size: 0.9rem; }
+
+  .confidence-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.2rem;
+  }
+  .confidence-pill {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.28rem 0.6rem;
+    border-radius: 999px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-strong);
+    color: var(--text-muted);
+  }
+
+  .ff-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 0.9rem;
+  }
+  .ff-col {
+    padding: 1rem 1.1rem;
+    border-radius: 6px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .ff-col h4 {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .ff-col span.sub {
+    font-size: 0.76rem;
+    color: var(--text-faint);
+    font-style: italic;
+    font-family: 'Source Serif 4', serif;
+  }
+  .ff-col p {
+    margin: 0;
+    font-size: 0.86rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  .weight-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+  .weight-pill {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    font-size: 0.85rem;
+  }
+  .weight-pill b {
+    font-family: 'IBM Plex Mono', monospace;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- Capabilities grid ---------- */
+  .cap-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+  }
+  .cap-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .cap-card h3 {
+    margin: 0;
+    font-size: 0.98rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .cap-card p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    line-height: 1.55;
+  }
+
+  /* ---------- Closing philosophy block ---------- */
+  .philosophy {
+    background: var(--text);
+    color: var(--bg);
+    border-radius: 8px;
+    padding: 2rem 2.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  .philosophy .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .philosophy h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: var(--bg);
+  }
+  .philosophy p {
+    margin: 0;
+    max-width: 68ch;
+    opacity: 0.92;
+    font-size: 1.02rem;
+  }
+  .philosophy .example {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    background: rgba(255,255,255,0.08);
+    padding: 0.85rem 1rem;
+    border-radius: 5px;
+    border-left: 3px solid var(--accent);
+    color: var(--bg);
+    opacity: 0.95;
+  }
+
+  .doc-footer {
+    margin-top: 3rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.74rem;
+    color: var(--text-faint);
+    letter-spacing: 0.02em;
+  }
+
+  @media (max-width: 560px) {
+    .stat-card { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="doc-header">
+    <div class="doc-kicker">Οδηγός Παρουσίασης · Προπονητές Α1</div>
+    <h1 class="doc-title">Impact <em>IQ</em></h1>
+    <p class="doc-sub">
+      Τι κάνει η εφαρμογή, ποια στατιστικά υπολογίζει και τι σημαίνει το καθένα στην πράξη — γραμμένο για να
+      το έχεις μπροστά σου σε μια παρουσίαση σε προπονητή Α1 και να απαντάς με σιγουριά σε κάθε ερώτηση.
+    </p>
+  </header>
+
+  <section>
+    <div class="section-head"><span class="section-num">01</span><h2>Τι είναι το Impact IQ</h2></div>
+    <p class="lede">
+      Το Impact IQ παίρνει τα δεδομένα ενός αγώνα — από φωτογραφία στατιστικού φύλλου, χειρόγραφη καταχώρηση,
+      ή πλήρες play-by-play αρχείο — και τα μετατρέπει σε ανάλυση απόδοσης σε βάθος, ίδιου επιπέδου με αυτό
+      που χρησιμοποιούν σήμερα επαγγελματικά τμήματα analytics. Όχι απλά πόντοι και ριμπάουντ: πραγματικοί
+      δείκτες αποδοτικότητας, επιρροής στο αποτέλεσμα, και ανάλυση γιατί μια ομάδα κερδίζει ή χάνει — σε
+      επίπεδο παίκτη, ομάδας, και ολόκληρου πρωταθλήματος.
+    </p>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">02</span><h2>Πώς μπαίνουν τα δεδομένα</h2></div>
+    <p class="section-intro">Τρεις τρόποι εισαγωγής — και ο τρίτος ξεκλειδώνει τη βαθύτερη ανάλυση της εφαρμογής.</p>
+    <div class="method-row">
+      <div class="method-card">
+        <span class="method-index">01 / Φωτογραφία</span>
+        <h3>OCR από στατιστικό φύλλο</h3>
+        <p>Φωτογραφίζεις το φύλλο αγώνα, η εφαρμογή το διαβάζει και βγάζει πλήρες boxscore αυτόματα.</p>
+      </div>
+      <div class="method-card">
+        <span class="method-index">02 / Χειροκίνητα</span>
+        <h3>Άμεση καταχώρηση</h3>
+        <p>Καταχώρηση των νούμερων απευθείας, όταν δεν υπάρχει φύλλο ή αρχείο διαθέσιμο.</p>
+      </div>
+      <div class="method-card highlight">
+        <span class="method-index">03 / Play-by-play</span>
+        <h3>Εισαγωγή αναλυτικού αρχείου</h3>
+        <p>
+          Το πιο ισχυρό: λεπτά συμμετοχής και +/- <strong>πραγματικά μετρημένα</strong> ανά παίκτη — όχι
+          εκτίμηση. Ξεκλειδώνει το Impact Rating, τη σύνθεση πεντάδων, και όλα όσα σημειώνονται
+          «play-by-play» παρακάτω.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">03</span><h2>Βασικά στατιστικά</h2></div>
+    <p class="section-intro">
+      Τα γνωστά, σε κάθε φύλλο — plus δύο λιγότερο συνηθισμένα που δίνουν καλύτερη εικόνα αμυντικής επιρροής.
+    </p>
+    <div class="basic-strip">
+      <span class="chip">ΠΟΝΤΟΙ</span><span class="chip">ΛΕΠΤΑ</span><span class="chip">2Τ / 3Τ / ΒΟΛΕΣ</span>
+      <span class="chip">ΕΠΙΘ. ΡΙΜΠΑΟΥΝΤ</span><span class="chip">ΑΜΥΝΤ. ΡΙΜΠΑΟΥΝΤ</span><span class="chip">ΑΣΙΣΤ</span>
+      <span class="chip">ΚΛΕΨΙΜΑΤΑ</span><span class="chip">ΚΟΨΙΜΑΤΑ</span><span class="chip">ΛΑΘΗ</span><span class="chip">ΦΑΟΥΛ</span>
+      <span class="chip callout">PFD — φάουλ που κερδήθηκαν</span>
+      <span class="chip callout">SRJ — σουτ που μπλοκαρίστηκαν</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">04</span><h2>Advanced στατιστικά</h2></div>
+    <p class="section-intro">
+      Κάθε μετρικό με το τι δείχνει, και ξεχωριστά, τι σημαίνει αυτό στην πράξη για έναν προπονητή.
+    </p>
+
+    <div class="stat-group">
+      <div class="stat-group-head"><h3>Σύνθετοι δείκτες</h3><span class="rule"></span></div>
+      <div class="stat-list">
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">PIR</span><span class="stat-name">Performance Index Rating</span></div>
+          <div class="stat-body">
+            <p>Ενιαίος δείκτης συνολικής συνεισφοράς σε έναν αγώνα — το ίδιο index που χρησιμοποιεί η Euroleague.</p>
+            <p class="stat-why">Γρήγορη εικόνα «ποιος έκανε τη διαφορά» — αλλά δεν σταθμίζει ρυθμό παιχνιδιού ή ευκαιρίες, οπότε δεν αρκεί μόνο του.</p>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">PER</span><span class="stat-name">Player Efficiency Rating</span></div>
+          <div class="stat-body">
+            <p>Παραγωγικότητα ανά λεπτό συμμετοχής, σταθμισμένη ως προς τον μέσο όρο του πρωταθλήματος (15 = μέσος όρος).</p>
+            <p class="stat-why">Συγκρίνει δίκαια παίκτες με διαφορετικό ρόλο και λεπτά συμμετοχής.</p>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">Impact&nbsp;Score</span><span class="stat-name">Δικός μας σύνθετος δείκτης</span></div>
+          <div class="stat-body">
+            <p>Πόσο πάνω ή κάτω από τον μέσο όρο του πρωταθλήματος βρίσκεται ένας παίκτης, σταθμίζοντας μαζί πόντους, ριμπάουντ, ασίστ, κλεψίματα, κοψίματα, λάθη και σκοπευτική αποδοτικότητα.</p>
+            <p class="stat-why">Ένα νούμερο που δεν κοιτάει μόνο επίθεση — τιμωρεί τα λάθη και επιβραβεύει την ολοκληρωμένη συνεισφορά.</p>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">PIE</span><span class="stat-name">Player/Team Impact Estimate</span></div>
+          <div class="stat-body">
+            <p>Ποσοστό όλων των «γεγονότων» ενός αγώνα (και των δύο ομάδων μαζί) που ανήκουν σε έναν παίκτη ή μια ομάδα.</p>
+            <p class="stat-why">Δείχνει το μερίδιο επιρροής στο σύνολο του αγώνα — όχι μόνο στη δική του ομάδα.</p>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">Net&nbsp;Rating</span><span class="stat-name">ORtg − DRtg</span></div>
+          <div class="stat-body">
+            <p>Για ομάδα: ακριβής διαφορά πόντων που σκοράρει μείον πόντων που δέχεται, ανά 100 κατοχές. Για παίκτη: πραγματικό, μετρημένο +/- ανά 100 κατοχές.</p>
+            <p class="stat-why">Το ατομικό Net Rating εμφανίζεται <em>μόνο</em> όταν υπάρχουν δεδομένα play-by-play — χωρίς αυτά δείχνει «Μη διαθέσιμο», ποτέ ένα ψεύτικο μηδέν.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-group">
+      <div class="stat-group-head"><h3>Σκοράρισμα</h3><span class="rule"></span></div>
+      <div class="stat-list">
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">PPFT / PP2PS / PP3PS</span><span class="stat-name">Πόντοι ανά προσπάθεια</span></div>
+          <div class="stat-body">
+            <p>Πόντοι ανά βολή, ανά δίποντη και ανά τρίποντη προσπάθεια — ξεχωριστά, όχι μέσος όρος.</p>
+            <p class="stat-why">Δείχνει ΠΟΥ ακριβώς είναι αποδοτικός ένας παίκτης, όχι μόνο πόσο συνολικά.</p>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">Points / Poss / 100 Poss</span><span class="stat-name">Αποδοτικότητα κατοχής</span></div>
+          <div class="stat-body">
+            <p>Πόσο αποδοτικά μετατρέπονται οι κατοχές (ευκαιρίες) σε πόντους, ανεξάρτητα από τον ρυθμό του αγώνα.</p>
+            <p class="stat-why">Επιτρέπει σύγκριση ομάδων με διαφορετικό ρυθμό παιχνιδιού δίκαια.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-group">
+      <div class="stat-group-head"><h3>Σουτ</h3><span class="rule"></span></div>
+      <div class="stat-list">
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">TS%</span><span class="stat-name">True Shooting</span></div>
+          <div class="stat-body">
+            <p>Σκοπευτική αποδοτικότητα λαμβάνοντας υπόψη δίποντα, τρίποντα ΚΑΙ βολές μαζί, σε ένα νούμερο.</p>
+            <p class="stat-why">Το πιο πλήρες «πόσο καλός σουτέρ είναι» — δεν παραβλέπει τις βολές όπως το απλό FG%.</p>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">eFG%</span><span class="stat-name">Effective FG%</span></div>
+          <div class="stat-body">
+            <p>Σαν το κλασικό ποσοστό σουτ, αλλά δίνει στο τρίποντο τη σωστή βαρύτητα (αξίζει 1.5x ένα δίποντο).</p>
+            <p class="stat-why">Δεν τιμωρεί άδικα έναν σουτέρ τριπόντων που ρίχνει χαμηλότερο % αλλά βγάζει περισσότερους πόντους.</p>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">FTr / 3PAr</span><span class="stat-name">FT Rate / 3PT Attempt Rate</span></div>
+          <div class="stat-body">
+            <p>Πόσο συχνά φτάνει κάποιος στη γραμμή βολών, και πόσο μεγάλο ποσοστό των σουτ του είναι τρίποντα.</p>
+            <p class="stat-why">Δείχνει τον «τύπο» σκοραρίσματος ενός παίκτη — επιθετικός στην ρακέτα ή περιμετρικός.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-group">
+      <div class="stat-group-head"><h3>Ριμπάουντ</h3><span class="rule"></span></div>
+      <div class="stat-list">
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">OREB% / DREB% / TRB%</span><span class="stat-name">Ποσοστό διαθέσιμων ριμπάουντ</span></div>
+          <div class="stat-body">
+            <p>Ποσοστό των πραγματικά διαθέσιμων ριμπάουντ (επιθετικών, αμυντικών, συνολικών) που πιάνει ένας παίκτης όσο είναι στο παρκέ.</p>
+            <p class="stat-why">Πιο δίκαιο από το ωμό νούμερο ριμπάουντ — ένας παίκτης σε γρήγορη ομάδα με λίγες ευκαιρίες δεν αδικείται.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-group">
+      <div class="stat-group-head"><h3>Διαχείριση μπάλας</h3><span class="rule"></span></div>
+      <div class="stat-list">
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">AST% / STL% / BLK% / TOV% / USG%</span><span class="stat-name">Ποσοστά επί των ευκαιριών</span></div>
+          <div class="stat-body">
+            <p>Ίδια λογική σε όλα: ποσοστό των πασών, κατοχών ή σουτ αντιπάλου στις οποίες συμμετέχει ουσιαστικά ο παίκτης όσο είναι στο παρκέ.</p>
+            <p class="stat-why">Δείχνει πραγματική χρήση/επιρροή, όχι απλά τον ωμό αριθμό — σημαντικό για σύγκριση παικτών με διαφορετικά λεπτά.</p>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-code-wrap"><span class="stat-code">AST/TOV · STL/TOV</span><span class="stat-name">Λόγοι δημιουργίας/απώλειας</span></div>
+          <div class="stat-body">
+            <p>Απλοί λόγοι: πόσες ασίστ ή κλεψίματα αντιστοιχούν σε κάθε λάθος.</p>
+            <p class="stat-why">Γρήγορος έλεγχος αν ένας play-maker παίρνει περισσότερα απ' όσα χάνει.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">05</span><h2>Impact Rating — πραγματικό adjusted plus-minus</h2></div>
+    <div class="feature-block">
+      <h3><span class="tag">Play-by-play</span> Το πιο βαθύ μας μετρικό</h3>
+      <p>
+        Υπολογίζουμε ένα πραγματικό <strong>adjusted plus-minus</strong> (RAPM) από αληθινά δεδομένα πεντάδων
+        — ποιος ήταν στο παρκέ, τι σκοράρισμα έγινε — με την ίδια βασική τεχνική πάνω στην οποία χτίζονται
+        μετρικά όπως το LEBRON και το EPM.
+      </p>
+      <p class="fine">
+        Δίνουμε <strong>ένα ειλικρινές νούμερο</strong> αντί για δύο διαφορετικά «LEBRON» και «EPM» — γιατί
+        χωρίς δεδομένα οπτικού tracking δεν θα μπορούσαμε ποτέ να τα διαφοροποιήσουμε τίμια. Θα ήταν απλά δύο
+        ίδια νούμερα με διαφορετική ετικέτα.
+      </p>
+      <div>
+        <p class="fine" style="margin-bottom:0.45rem;">Κάθε βαθμολογία συνοδεύεται από επίπεδο εμπιστοσύνης, ανάλογα με τον όγκο των play-by-play αγώνων:</p>
+        <div class="confidence-row">
+          <span class="confidence-pill">Καμία δεδομένα</span>
+          <span class="confidence-pill">Πολύ χαμηλή</span>
+          <span class="confidence-pill">Χαμηλή</span>
+          <span class="confidence-pill">Μέτρια</span>
+          <span class="confidence-pill">Υψηλή</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">06</span><h2>Σελίδα «Four Factors»</h2></div>
+    <p class="section-intro">Νέα, αφιερωμένη σελίδα ανάλυσης ομάδας, σε τρία επίπεδα.</p>
+    <div class="ff-columns">
+      <div class="ff-col">
+        <h4>Primary Metrics</h4>
+        <span class="sub">τι πραγματικά συνέβη</span>
+        <p>ORtg, DRtg, Net Rating, eFG%, TOV%, ORB%, FTr — το τελικό αποτύπωμα του αγώνα.</p>
+      </div>
+      <div class="ff-col">
+        <h4>Context Metrics</h4>
+        <span class="sub">υπό ποιες συνθήκες</span>
+        <p>Ρυθμός παιχνιδιού, ποιότητα αντιπάλων, σύνθεση πεντάδων (από play-by-play), θέσεις παικτών.</p>
+      </div>
+      <div class="ff-col">
+        <h4>Strategic Metrics</h4>
+        <span class="sub">γιατί μπορεί να συνέβη</span>
+        <p>Δηλώνονται ξεκάθαρα ως μη διαθέσιμα — χρειάζονται δεδομένα tracking κάμερας/video, που καμία από τις μεθόδους εισαγωγής δεν μπορεί να δώσει.</p>
+      </div>
+    </div>
+    <p class="section-intro" style="margin-top:1.1rem;">
+      Και τέσσερις κάρτες που συνδυάζουν τους «τέσσερις παράγοντες» του Dean Oliver με πραγματικά υπο-μετρικά:
+    </p>
+    <div class="weight-row">
+      <div class="weight-pill"><b>40%</b> Σουτ (TS%, 3PAr, Assisted FG%)</div>
+      <div class="weight-pill"><b>25%</b> Διαχείριση μπάλας (AST/TOV, STL%, Live-ball TOV%)</div>
+      <div class="weight-pill"><b>20%</b> Ριμπάουντ (Opponent ORB%)</div>
+      <div class="weight-pill"><b>15%</b> Βολές (FT/FGA, Foul Rate)</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">07</span><h2>Δυνατότητες</h2></div>
+    <div class="cap-grid">
+      <div class="cap-card">
+        <h3>Dashboard ανά παίκτη / ομάδα / πρωτάθλημα</h3>
+        <p>Κάθε στατιστικό συγκρίνεται αυτόματα με τον μέσο όρο του πρωταθλήματος — όχι μόνο ωμά νούμερα.</p>
+      </div>
+      <div class="cap-card">
+        <h3>Πολλαπλές διοργανώσεις</h3>
+        <p>Πρωταθλήματα και κύπελλα ξεχωριστά ή συνολικά, για ομάδες/παίκτες που παίζουν σε παραπάνω από μία διοργάνωση.</p>
+      </div>
+      <div class="cap-card">
+        <h3>Γραφήματα</h3>
+        <p>Εξέλιξη βαθμολογίας στη σεζόν, win probability αγώνα, percentile radar παίκτη έναντι πρωταθλήματος.</p>
+      </div>
+      <div class="cap-card">
+        <h3>Εξαγωγή Excel / PDF</h3>
+        <p>Όλα τα advanced στατιστικά ανά ρόστερ, ταξινομημένα, «μέχρι τον αγώνα Χ» — όχι μόνο τελικό σεζόν, χρήσιμο μέσα στη σεζόν.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-bottom: 0;">
+    <div class="philosophy">
+      <span class="eyebrow">Η αρχή μας</span>
+      <h2>Ποτέ δεν επινοούμε δεδομένα.</h2>
+      <p>
+        Ό,τι μπορούμε να υπολογίσουμε πραγματικά από τα δεδομένα που έχεις καταχωρήσει, το δείχνουμε. Ό,τι
+        δεν μπορούμε — γιατί χρειάζεται δεδομένα οπτικού tracking που καμία φωτογραφία, χειρόγραφη καταχώρηση
+        ή play-by-play αρχείο δεν μπορεί ποτέ να δώσει — το δηλώνουμε ξεκάθαρα, με τον λόγο. Ποτέ ένα
+        πλασματικό νούμερο στη θέση του.
+      </p>
+      <div class="example">Παράδειγμα: «Rim Frequency — Μη διαθέσιμο. Χρειάζεται δεδομένα θέσης σουτ στο γήπεδο, τα οποία δεν καταγράφονται από καμία μέθοδο εισαγωγής της εφαρμογής.»</div>
+    </div>
+  </section>
+
+  <div class="doc-footer">IMPACT IQ — ΟΔΗΓΟΣ ΠΑΡΟΥΣΙΑΣΗΣ ΓΙΑ ΠΡΟΠΟΝΗΤΕΣ</div>
+
+</div>

@@ -394,10 +394,109 @@ function buildPlayerWinLossInsights(playerName, winPerGame, lossPerGame) {
   return insights;
 }
 
+/**
+ * Every advanced metric checked against playing time, one per category —
+ * `lowerIsBetter` flips the "improving" direction for TOV%, the one metric
+ * where less is more. Matches the same set audited for the Four Factors
+ * page (see electron/services/fourFactors.js's METRIC_DEFS in ipc.js).
+ */
+const PLAYING_TIME_METRIC_DEFS = [
+  { key: 'efg_pct', label: 'eFG%' },
+  { key: 'ts_pct', label: 'TS%' },
+  { key: 'ft_rate', label: 'FTr' },
+  { key: 'three_pt_attempt_rate', label: '3PAr' },
+  { key: 'ppft', label: 'PPFT' },
+  { key: 'pp2ps', label: 'PP2PS' },
+  { key: 'pp3ps', label: 'PP3PS' },
+  { key: 'points_per_shot', label: 'Points/Shot' },
+  { key: 'points_per_poss', label: 'Points/Poss' },
+  { key: 'points_per_100poss', label: 'Points/100 Poss' },
+  { key: 'oreb_pct', label: 'OREB%' },
+  { key: 'dreb_pct', label: 'DREB%' },
+  { key: 'treb_pct', label: 'TRB%' },
+  { key: 'ast_pct', label: 'AST%' },
+  { key: 'stl_pct', label: 'STL%' },
+  { key: 'blk_pct', label: 'BLK%' },
+  { key: 'tov_pct', label: 'TOV%', lowerIsBetter: true },
+  { key: 'usg_pct', label: 'USG%' },
+];
+
+const MIN_TREND_GAMES = 5;
+const SLOPE_EPSILON = 1e-6; // treats a slope this close to 0 as "flat", not a real trend either way
+
+/**
+ * Least-squares slope of `value` against game order (0, 1, 2, ...). A
+ * simple linear trend, not a significance test — good enough to say
+ * "generally rising/falling this season", not precise enough to claim more
+ * than that. Returns null if there aren't enough valid (non-null) games to
+ * make a trend meaningful.
+ */
+function computeTrendSlope(points) {
+  const n = points.length;
+  if (n < MIN_TREND_GAMES) return null;
+  const meanX = points.reduce((a, p) => a + p.index, 0) / n;
+  const meanY = points.reduce((a, p) => a + p.value, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (const p of points) {
+    num += (p.index - meanX) * (p.value - meanY);
+    den += (p.index - meanX) ** 2;
+  }
+  return den > 0 ? num / den : 0;
+}
+
+/**
+ * Flags advanced metrics whose season trend doesn't line up with the
+ * player's playing-time trend — e.g. a rising eFG% with flat/falling
+ * minutes, or a worsening TOV% (going up) that hasn't cost them minutes
+ * yet. `gameLog` is ordered by date ascending, one entry per game, each
+ * shaped like `{ min, ...every key in PLAYING_TIME_METRIC_DEFS }` — a
+ * metric with too few valid games (e.g. opponent box score missing for
+ * some games, so rebounding/ball-handling % couldn't be computed) is
+ * silently skipped rather than trended on a thin, misleading sample.
+ */
+function buildPlayingTimeInsights(gameLog) {
+  if (gameLog.length < MIN_TREND_GAMES) return [];
+
+  const minSlope = computeTrendSlope(gameLog.map((g, index) => ({ index, value: g.min })));
+  if (minSlope === null) return [];
+  const minutesFlatOrDown = minSlope <= SLOPE_EPSILON;
+  const minutesFlatOrUp = minSlope >= -SLOPE_EPSILON;
+
+  const insights = [];
+  for (const def of PLAYING_TIME_METRIC_DEFS) {
+    const points = gameLog
+      .map((g, index) => ({ index, value: g[def.key] }))
+      .filter((p) => p.value !== null && p.value !== undefined && !Number.isNaN(p.value));
+    const slope = computeTrendSlope(points);
+    if (slope === null) continue;
+
+    const risingRaw = slope > SLOPE_EPSILON;
+    const fallingRaw = slope < -SLOPE_EPSILON;
+    const improving = def.lowerIsBetter ? fallingRaw : risingRaw;
+    const declining = def.lowerIsBetter ? risingRaw : fallingRaw;
+    const direction = risingRaw ? 'up' : 'down';
+
+    if (improving && minutesFlatOrDown) {
+      insights.push({
+        stat: def.key,
+        text: `${def.label} has trended ${direction} this season (an improvement${def.lowerIsBetter ? ' — lower is better here' : ''}), without a matching rise in playing time.`,
+      });
+    } else if (declining && minutesFlatOrUp) {
+      insights.push({
+        stat: def.key,
+        text: `${def.label} has trended ${direction} this season (the wrong direction), despite playing time staying flat or rising.`,
+      });
+    }
+  }
+  return insights;
+}
+
 module.exports = {
   buildTeamInsights,
   buildPlayerInsights,
   buildTeamProfileInsights,
   buildLossPatternInsights,
   buildPlayerWinLossInsights,
+  buildPlayingTimeInsights,
 };

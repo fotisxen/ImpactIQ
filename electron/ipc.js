@@ -23,6 +23,7 @@ const {
   buildTeamProfileInsights,
   buildLossPatternInsights,
   buildPlayerWinLossInsights,
+  buildPlayingTimeInsights,
 } = require('./services/insights');
 const { signup, login, logout } = require('./services/auth');
 const {
@@ -1153,6 +1154,8 @@ function buildPlayerScoutingReport(db, playerId) {
         )
       : [];
 
+  const playingTimeInsights = buildPlayingTimeInsights(computePlayerAdvancedGameLog(db, playerId));
+
   return {
     playerId: player.id,
     playerName: player.name,
@@ -1161,7 +1164,51 @@ function buildPlayerScoutingReport(db, playerId) {
     games: summary.games,
     profileInsights,
     winVsLossInsights,
+    playingTimeInsights,
   };
+}
+
+/**
+ * One row per game this player has data for, with every advanced metric
+ * PLAYING_TIME_METRIC_DEFS needs computed at single-game grain (not a
+ * season aggregate) — the raw material for buildPlayingTimeInsights'
+ * trend-vs-minutes check. Rebounding/ball-handling % are left null for a
+ * game whose opponent has no box score entered at all (rather than
+ * computing them against an all-zero opponent total, which would produce
+ * a fabricated-looking 0% or 100%, not an honest "not measured").
+ */
+function computePlayerAdvancedGameLog(db, playerId) {
+  const games = db
+    .prepare(
+      `SELECT bs.*, g.id AS game_id, g.date AS date, p.team_id AS team_id,
+              CASE WHEN g.home_team_id = p.team_id THEN g.away_team_id ELSE g.home_team_id END AS opp_team_id
+       FROM box_scores bs
+       JOIN players p ON p.id = bs.player_id
+       JOIN games g ON g.id = bs.game_id
+       WHERE bs.player_id = ?
+       ORDER BY g.date ASC`
+    )
+    .all(playerId);
+
+  const teamRowsStmt = db.prepare(
+    `SELECT bs2.* FROM box_scores bs2 JOIN players p2 ON p2.id = bs2.player_id WHERE bs2.game_id = ? AND p2.team_id = ?`
+  );
+
+  return games.map((g) => {
+    const teamRows = teamRowsStmt.all(g.game_id, g.team_id);
+    const oppRows = teamRowsStmt.all(g.game_id, g.opp_team_id);
+    const hasOppData = oppRows.length > 0;
+
+    const selfContained = advancedStatLine(g);
+    const reb = hasOppData
+      ? reboundingStatLine({ row: g, teamRow: sumRows(teamRows), oppRow: sumRows(oppRows), isTeam: false })
+      : { oreb_pct: null, dreb_pct: null, treb_pct: null };
+    const bh = hasOppData
+      ? ballHandlingStatLine({ row: g, teamRow: sumRows(teamRows), oppRow: sumRows(oppRows), isTeam: false })
+      : { ast_pct: null, stl_pct: null, blk_pct: null, tov_pct: null, usg_pct: null };
+
+    return { min: g.min, ...selfContained, ...reb, ...bh };
+  });
 }
 
 function teamAggregate(db, teamId) {

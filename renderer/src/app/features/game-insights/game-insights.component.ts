@@ -249,6 +249,21 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
                 <p class="hint">Not enough wins and losses yet to compare.</p>
               }
             </div>
+
+            <div class="team-column card">
+              <h4>Playing time vs. performance</h4>
+              <p class="hint">
+                Every advanced stat improving should come with more minutes over time (less TOV% is the one
+                exception — lower is better there). Flags where that isn't happening.
+              </p>
+              @for (i of r.playingTimeInsights; track i.text) {
+                <p class="insight-line negative">{{ i.text }}</p>
+              } @empty {
+                <p class="hint">
+                  {{ r.games < 5 ? 'Needs at least 5 games this season to trend.' : 'No mismatches between performance trend and playing time.' }}
+                </p>
+              }
+            </div>
           </div>
         } @else if (selectedPlayerId() !== null && !loading()) {
           <p class="hint">Not enough games saved for this player yet.</p>
