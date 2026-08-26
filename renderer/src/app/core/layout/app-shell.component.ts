@@ -26,6 +26,7 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
           <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
           <a routerLink="/game-insights" routerLinkActive="active">Insights</a>
           <a routerLink="/four-factors" routerLinkActive="active">Four Factors</a>
+          <a routerLink="/compare" routerLinkActive="active">Compare</a>
           <a routerLink="/account" routerLinkActive="active">Account</a>
         </nav>
       </aside>
@@ -63,7 +64,7 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
     .shell {
       display: grid;
       grid-template-columns: 220px 1fr;
-      min-height: 100vh;
+      height: 100vh;
     }
 
     .sidebar {
@@ -73,6 +74,7 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
       flex-direction: column;
       padding: var(--space-5) var(--space-4);
       gap: var(--space-6);
+      overflow-y: auto;
     }
 
     .brand {
@@ -130,6 +132,7 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
       display: flex;
       flex-direction: column;
       min-width: 0;
+      min-height: 0;
     }
 
     .topbar {

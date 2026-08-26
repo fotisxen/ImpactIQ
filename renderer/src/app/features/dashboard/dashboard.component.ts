@@ -22,6 +22,7 @@ import {
 import { StatTrendChartComponent } from '../../shared/components/stat-trend-chart.component';
 import { StatLineModalComponent } from '../../shared/components/stat-line-modal.component';
 import { InsightChartModalComponent } from '../../shared/components/insight-chart-modal.component';
+import { GameBoxScoreModalComponent } from '../../shared/components/game-box-score-modal.component';
 import { BumpChartComponent } from '../../shared/components/bump-chart.component';
 import { FactorBarsComponent, FactorBar } from '../../shared/components/factor-bars.component';
 import type { ChartData, ChartType } from 'chart.js';
@@ -36,6 +37,7 @@ import {
 } from '../../shared/utils/chart-theme';
 import {
   AdvancedStatLine,
+  GameBoxScore,
   PlayerLeaderboardEntry,
   StatSummary,
   TeamRanking,
@@ -50,6 +52,7 @@ interface ChartModalState {
   data: ChartData;
   /** 'radar' is used by both Four Factors (fixed-scale) and the percentile radar (always 0-100) — this picks the right axis options. */
   percentileScale?: boolean;
+  extraRows?: { label: string; value: string }[];
 }
 
 const MODE_OPTIONS: SegmentOption<DashboardMode>[] = [
@@ -67,13 +70,14 @@ const COUNTING_LABELS = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TOV'];
 const SHOOTING_LABELS = ['TS%', 'eFG%', 'FG%', '3P%', 'FT%'];
 
 /** Second-level tab within each mode — a plain in-page switch, not a route, so state stays in this component/service. */
-type DashTab = 'overview' | 'basic' | 'advanced' | 'roster' | 'games' | 'leaderboards';
+type DashTab = 'overview' | 'basic' | 'advanced' | 'roster' | 'games' | 'leaderboards' | 'history';
 
 const PLAYER_TAB_OPTIONS: SegmentOption<DashTab>[] = [
   { label: 'Overview', value: 'overview' },
   { label: 'Basic Stats', value: 'basic' },
   { label: 'Advanced Stats', value: 'advanced' },
   { label: 'Games', value: 'games' },
+  { label: 'History', value: 'history' },
 ];
 const TEAM_TAB_OPTIONS: SegmentOption<DashTab>[] = [
   { label: 'Overview', value: 'overview' },
@@ -81,6 +85,7 @@ const TEAM_TAB_OPTIONS: SegmentOption<DashTab>[] = [
   { label: 'Advanced Stats', value: 'advanced' },
   { label: 'Roster', value: 'roster' },
   { label: 'Games', value: 'games' },
+  { label: 'History', value: 'history' },
 ];
 const LEAGUE_TAB_OPTIONS: SegmentOption<DashTab>[] = [
   { label: 'Overview', value: 'overview' },
@@ -146,6 +151,7 @@ interface Rankable {
     InsightChartModalComponent,
     BumpChartComponent,
     FactorBarsComponent,
+    GameBoxScoreModalComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -170,7 +176,7 @@ interface Rankable {
             />
             @if (dash.seasons().length > 0) {
               <app-entity-picker
-                label="vs League Season"
+                label="Season"
                 [options]="dash.seasonOptions()"
                 [selectedId]="dash.selectedSeasonId()"
                 [allowCreate]="false"
@@ -201,7 +207,7 @@ interface Rankable {
             />
             @if (dash.seasons().length > 0) {
               <app-entity-picker
-                label="vs League Season"
+                label="Season"
                 [options]="dash.seasonOptions()"
                 [selectedId]="dash.selectedSeasonId()"
                 [allowCreate]="false"
@@ -215,6 +221,21 @@ interface Rankable {
               [allowCreate]="false"
               (selectedIdChange)="dash.selectTeam($event)"
             />
+            @if (dash.favoriteTeamId() !== null && dash.favoriteTeamId() !== dash.selectedTeamId()) {
+              <button type="button" class="btn btn-ghost btn-sm favorite-jump" (click)="dash.selectFavoriteTeam()">
+                ⭐ My Team
+              </button>
+            }
+            @if (dash.selectedTeamId() !== null) {
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm favorite-toggle"
+                [disabled]="dash.favoriteTeamId() === dash.selectedTeamId()"
+                (click)="dash.setFavoriteTeam(dash.selectedTeamId()!)"
+              >
+                {{ dash.favoriteTeamId() === dash.selectedTeamId() ? '★ Favorite' : '☆ Set as favorite' }}
+              </button>
+            }
           }
           @case ('league') {
             <app-league-picker
@@ -266,6 +287,8 @@ interface Rankable {
             title="PIE per game"
             [labels]="pieModalLabels()"
             [data]="pieModalData()"
+            [averageValue]="pieModalAverage()"
+            averageLabel="League average"
             (close)="closePieModal()"
           />
         }
@@ -277,13 +300,31 @@ interface Rankable {
             [chartType]="modal.chartType"
             [data]="modal.data"
             [options]="chartModalOptions()"
+            [extraRows]="modal.extraRows ?? []"
             (close)="chartModal.set(null)"
+          />
+        }
+
+        @if (gameBoxScoreModal(); as box) {
+          <app-game-box-score-modal
+            [boxScore]="box"
+            [exporting]="gameBoxScoreExporting()"
+            (close)="gameBoxScoreModal.set(null)"
+            (exportRequested)="exportGameBoxScore(box.gameId, $event)"
           />
         }
 
         @if (activeTab() === 'overview') {
           <div class="headline-row">
             <app-stat-tile label="Games" [value]="summary.games.toString()" />
+            @if (dash.mode() === 'league') {
+              <app-stat-tile
+                label="PTS / game"
+                [value]="numFmt(summary.perGame['pts'])"
+                [clickable]="true"
+                (tileClick)="openScoringBreakdownChart(summary)"
+              />
+            }
             @if (dash.mode() !== 'team') {
               <app-stat-tile
                 label="PIR"
@@ -390,7 +431,11 @@ interface Rankable {
                   </thead>
                   <tbody>
                     @for (r of sortedRankings(); track r.teamId; let i = $index) {
-                      <tr>
+                      <tr
+                        class="clickable-row"
+                        [class.active]="r.teamId === selectedStandingsTeamId()"
+                        (click)="toggleStandingsTeam(r.teamId)"
+                      >
                         <td>{{ i + 1 }}</td>
                         <td>{{ r.teamName }}</td>
                         <td>{{ r.games }}</td>
@@ -412,7 +457,7 @@ interface Rankable {
             </div>
 
             @if (dash.standingsHistory(); as history) {
-              <app-bump-chart [history]="history" />
+              <app-bump-chart [history]="history" [selectedTeamId]="selectedStandingsTeamId()" />
             }
           }
 
@@ -464,6 +509,7 @@ interface Rankable {
                       <th>REB</th>
                       <th>AST</th>
                       <th></th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -479,6 +525,16 @@ interface Rankable {
                           <button
                             type="button"
                             class="btn btn-ghost btn-sm"
+                            aria-label="View box score"
+                            (click)="openGameBoxScoreModal(g.game_id)"
+                          >
+                            👁
+                          </button>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            class="btn btn-ghost btn-sm"
                             [disabled]="exportingGameId() === g.game_id"
                             (click)="exportGameCard(g.game_id)"
                           >
@@ -488,7 +544,7 @@ interface Rankable {
                       </tr>
                     } @empty {
                       <tr>
-                        <td colspan="7" class="hint">No games saved yet.</td>
+                        <td colspan="8" class="hint">No games saved yet.</td>
                       </tr>
                     }
                   </tbody>
@@ -656,36 +712,42 @@ interface Rankable {
                 label="PPFT"
                 [value]="advNumFmt3(summary.advanced.ppft)"
                 [diff]="advDiff(summary, 'ppft')"
+                [diffDecimals]="3"
                 [diffAgainst]="diffLabel()"
               />
               <app-stat-tile
                 label="PP2PS"
                 [value]="advNumFmt3(summary.advanced.pp2ps)"
                 [diff]="advDiff(summary, 'pp2ps')"
+                [diffDecimals]="3"
                 [diffAgainst]="diffLabel()"
               />
               <app-stat-tile
                 label="PP3PS"
                 [value]="advNumFmt3(summary.advanced.pp3ps)"
                 [diff]="advDiff(summary, 'pp3ps')"
+                [diffDecimals]="3"
                 [diffAgainst]="diffLabel()"
               />
               <app-stat-tile
                 label="Points / Shot"
                 [value]="advNumFmt3(summary.advanced.points_per_shot)"
                 [diff]="advDiff(summary, 'points_per_shot')"
+                [diffDecimals]="3"
                 [diffAgainst]="diffLabel()"
               />
               <app-stat-tile
                 label="Points / Poss"
                 [value]="advNumFmt3(summary.advanced.points_per_poss)"
                 [diff]="advDiff(summary, 'points_per_poss')"
+                [diffDecimals]="3"
                 [diffAgainst]="diffLabel()"
               />
               <app-stat-tile
                 label="Points / 100 Poss"
                 [value]="advNumFmt3(summary.advanced.points_per_100poss)"
                 [diff]="advDiff(summary, 'points_per_100poss')"
+                [diffDecimals]="3"
                 [diffAgainst]="diffLabel()"
               />
             </div>
@@ -935,6 +997,54 @@ interface Rankable {
           </div>
         }
 
+        @if (activeTab() === 'history' && dash.mode() !== 'league') {
+          <div class="table-card card">
+            <h4>Season by season</h4>
+            <div class="table-scroll">
+              <table class="log-table">
+                <thead>
+                  <tr>
+                    <th>Season</th>
+                    <th>GP</th>
+                    <th>PTS/g</th>
+                    <th>PER</th>
+                    @if (dash.mode() === 'player') {
+                      <th>PIE</th>
+                    }
+                    <th>Net Rating</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (r of dash.seasonHistory(); track r.seasonId) {
+                    <tr>
+                      <td>{{ r.seasonYear }}</td>
+                      <td>{{ r.games }}</td>
+                      <td>{{ numFmt(r.pts) }}</td>
+                      <td>{{ r.per !== null ? advNumFmt2(r.per) : '—' }}</td>
+                      @if (dash.mode() === 'player') {
+                        <td>{{ r.pie !== null ? advPctFmt2(r.pie) : '—' }}</td>
+                      }
+                      <td>{{ r.netRating !== null ? advNumFmt2(r.netRating) : '—' }}</td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td [attr.colspan]="dash.mode() === 'player' ? 6 : 5" class="hint">
+                        No seasons with saved data yet.
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          @if (dash.seasonHistory().length > 1) {
+            <div class="chart-row">
+              <app-stat-trend-chart title="PER by season" [labels]="seasonHistoryLabels()" [data]="seasonHistoryPerData()" />
+            </div>
+          }
+        }
+
         @if (activeTab() === 'leaderboards' && dash.mode() === 'league') {
           <div class="table-card card">
             <div class="rankings-header">
@@ -1077,6 +1187,11 @@ interface Rankable {
     .clickable-row:hover {
       background: var(--accent-muted);
     }
+    .clickable-row.active {
+      background: var(--accent-muted);
+      outline: 1px solid var(--accent);
+      outline-offset: -1px;
+    }
 
     .tile-grid {
       display: grid;
@@ -1086,7 +1201,7 @@ interface Rankable {
 
     .chart-row {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
       gap: var(--space-4);
     }
 
@@ -1203,6 +1318,12 @@ export class DashboardComponent implements OnInit {
         this.reportThroughGame.set(max);
       });
     });
+
+    effect(() => {
+      this.dash.selectedLeagueId();
+      this.dash.selectedSeasonId();
+      this.selectedStandingsTeamId.set(null);
+    });
   }
 
   protected onReportThroughGameChange(event: Event): void {
@@ -1231,6 +1352,11 @@ export class DashboardComponent implements OnInit {
   }
 
   protected readonly rankStat = signal<RankStat>('pts');
+  protected readonly selectedStandingsTeamId = signal<number | null>(null);
+
+  protected toggleStandingsTeam(teamId: number): void {
+    this.selectedStandingsTeamId.set(this.selectedStandingsTeamId() === teamId ? null : teamId);
+  }
 
   protected readonly sortedRankings = computed(() => {
     const stat = this.rankStat();
@@ -1351,6 +1477,30 @@ export class DashboardComponent implements OnInit {
       this.toast.error(err instanceof Error ? err.message : 'Failed to export game card.');
     } finally {
       this.exportingGameId.set(null);
+    }
+  }
+
+  protected readonly gameBoxScoreModal = signal<GameBoxScore | null>(null);
+  protected readonly gameBoxScoreExporting = signal<'excel' | 'pdf' | null>(null);
+
+  protected async openGameBoxScoreModal(gameId: number): Promise<void> {
+    const box = await window.boxscoreApi.getGameBoxScore(gameId);
+    if (!box) {
+      this.toast.error('Could not load that game.');
+      return;
+    }
+    this.gameBoxScoreModal.set(box);
+  }
+
+  protected async exportGameBoxScore(gameId: number, format: 'excel' | 'pdf'): Promise<void> {
+    this.gameBoxScoreExporting.set(format);
+    try {
+      const result = await window.boxscoreApi.exportGameBoxScore({ format, gameId });
+      if (result.saved) this.toast.success('Box score exported.');
+    } catch (err) {
+      this.toast.error(err instanceof Error ? err.message : 'Failed to export the box score.');
+    } finally {
+      this.gameBoxScoreExporting.set(null);
     }
   }
 
@@ -1640,7 +1790,7 @@ export class DashboardComponent implements OnInit {
   }
 
   protected trendLabels(): string[] {
-    return this.dash.gameLog().map((g) => `${g.date} vs ${g.opponent}`);
+    return this.dash.gameLog().map((g) => g.opponent);
   }
 
   protected trendData(): number[] {
@@ -1653,7 +1803,7 @@ export class DashboardComponent implements OnInit {
   }
 
   protected pieTrendLabels(): string[] {
-    return this.dash.pieTrendLog().map((g) => `${g.date} vs ${g.opponent}`);
+    return this.dash.pieTrendLog().map((g) => g.opponent);
   }
 
   protected pieTrendData(): number[] {
@@ -1661,11 +1811,19 @@ export class DashboardComponent implements OnInit {
   }
 
   protected perTrendLabels(): string[] {
-    return this.dash.perTrendLog().map((g) => `${g.date} vs ${g.opponent}`);
+    return this.dash.perTrendLog().map((g) => g.opponent);
   }
 
   protected perTrendData(): number[] {
     return this.dash.perTrendLog().map((g) => g.per ?? 0);
+  }
+
+  protected seasonHistoryLabels(): string[] {
+    return this.dash.seasonHistory().map((r) => r.seasonYear);
+  }
+
+  protected seasonHistoryPerData(): number[] {
+    return this.dash.seasonHistory().map((r) => r.per ?? 0);
   }
 
   /** The DOE Four Factors as 0-1 fractions, for the "carpet" progress-bar chart. */
@@ -1694,7 +1852,12 @@ export class DashboardComponent implements OnInit {
   }
 
   protected pieModalLabels(): string[] {
-    return this.pieLog().map((g) => `${g.date} vs ${g.opponent}`);
+    return this.pieLog().map((g) => g.opponent);
+  }
+
+  protected pieModalAverage(): number | null {
+    const baseline = this.comparisonBaseline();
+    return baseline && baseline.pie !== null ? baseline.pie * 100 : null;
   }
 
   protected pieModalData(): number[] {
@@ -1758,9 +1921,10 @@ export class DashboardComponent implements OnInit {
     });
   }
 
-  /** Doughnut — how this subject's points actually break down by shot type. */
+  /** Doughnut — how this subject's points actually break down by shot type, plus each slice's per-game average. */
   protected openScoringBreakdownChart(summary: StatSummary): void {
     const t = summary.totals;
+    const games = summary.games || 1;
     const twoPtPts = ((t['fgm'] ?? 0) - (t['tpm'] ?? 0)) * 2;
     const threePtPts = (t['tpm'] ?? 0) * 3;
     const ftPts = t['ftm'] ?? 0;
@@ -1780,6 +1944,11 @@ export class DashboardComponent implements OnInit {
           },
         ],
       } as ChartData,
+      extraRows: [
+        { label: '2PT points', value: `${twoPtPts.toFixed(0)} total · ${this.numFmt(twoPtPts / games)} / game` },
+        { label: '3PT points', value: `${threePtPts.toFixed(0)} total · ${this.numFmt(threePtPts / games)} / game` },
+        { label: 'FT points', value: `${ftPts.toFixed(0)} total · ${this.numFmt(ftPts / games)} / game` },
+      ],
     });
   }
 

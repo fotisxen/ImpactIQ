@@ -164,4 +164,101 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => map[c]);
 }
 
-module.exports = { buildWorkbook, buildAdvancedReportWorkbook, renderReportToPdf };
+const GAME_BOX_SCORE_STAT_KEYS = [
+  'min', 'pts', 'fgm', 'fga', 'tpm', 'tpa', 'ftm', 'fta',
+  'oreb', 'dreb', 'ast', 'stl', 'blk', 'tov', 'pf', 'pfd', 'plus_minus', 'srj',
+];
+const GAME_BOX_SCORE_HEADERS = [
+  'Player', 'MIN', 'PTS', 'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA',
+  'OREB', 'DREB', 'AST', 'STL', 'BLK', 'TOV', 'PF', 'PFD', '+/-', 'SRJ',
+];
+
+/** One workbook, one worksheet per team — same "roster + totals row" template as the app's own box-score entry table. */
+function buildGameBoxScoreWorkbook(box) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'Box Score Analytics';
+  workbook.created = new Date();
+  addGameBoxScoreSheet(workbook, box.homeTeamName, box.homeRoster, box.homeTotals, box);
+  addGameBoxScoreSheet(workbook, box.awayTeamName, box.awayRoster, box.awayTotals, box);
+  return workbook;
+}
+
+function addGameBoxScoreSheet(workbook, teamName, roster, totals, box) {
+  const sheet = workbook.addWorksheet(sheetNameFor(teamName));
+  sheet.addRow([teamName, `${box.leagueName} ${box.seasonYear}`.trim(), box.date]);
+  sheet.addRow([]);
+  const headerRow = sheet.addRow(GAME_BOX_SCORE_HEADERS);
+  headerRow.font = { bold: true };
+  for (const p of roster) {
+    sheet.addRow([p.name, ...GAME_BOX_SCORE_STAT_KEYS.map((k) => p[k])]);
+  }
+  const totalsRow = sheet.addRow(['Total', ...GAME_BOX_SCORE_STAT_KEYS.map((k) => totals[k] ?? 0)]);
+  totalsRow.font = { bold: true };
+  sheet.columns.forEach((col) => (col.width = 10));
+  sheet.getColumn(1).width = 22;
+}
+
+/** Same hidden-BrowserWindow + printToPDF technique as renderReportToPdf, one page per team. */
+async function renderGameBoxScoreToPdf(box) {
+  const html = buildGameBoxScoreHtml(box);
+  const win = new BrowserWindow({ show: false });
+  try {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    return await win.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+  } finally {
+    win.destroy();
+  }
+}
+
+function buildGameBoxScoreHtml(box) {
+  const metaLine = `${escapeHtml(box.leagueName)} ${escapeHtml(box.seasonYear)} · ${escapeHtml(box.date)}`;
+  const teamSection = (teamName, roster, totals, isFirst) => `
+    <section${isFirst ? '' : ' style="page-break-before: always;"'}>
+      <h1>${escapeHtml(box.homeTeamName)} vs ${escapeHtml(box.awayTeamName)}</h1>
+      <p class="meta">${metaLine}</p>
+      <h2>${escapeHtml(teamName)}</h2>
+      <table>
+        <thead><tr>${GAME_BOX_SCORE_HEADERS.map((h) => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${roster
+            .map(
+              (p) =>
+                `<tr><td>${escapeHtml(p.name)}</td>${GAME_BOX_SCORE_STAT_KEYS.map((k) => `<td>${escapeHtml(String(p[k]))}</td>`).join('')}</tr>`
+            )
+            .join('')}
+          <tr class="totals"><td>Total</td>${GAME_BOX_SCORE_STAT_KEYS.map((k) => `<td>${escapeHtml(String(totals[k] ?? 0))}</td>`).join('')}</tr>
+        </tbody>
+      </table>
+    </section>`;
+
+  const sections =
+    teamSection(box.homeTeamName, box.homeRoster, box.homeTotals, true) +
+    teamSection(box.awayTeamName, box.awayRoster, box.awayTotals, false);
+
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, Arial, sans-serif; color: #1a1d24; margin: 24px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 16px 0 8px; }
+  .meta { font-size: 11px; color: #5b6479; margin: 0 0 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  th, td { border: 1px solid #dde1e8; padding: 3px 6px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  th { background: #f0f1f5; }
+  tr.totals td { font-weight: bold; border-top: 2px solid #1a1d24; }
+</style>
+</head>
+<body>${sections}</body>
+</html>`;
+}
+
+module.exports = {
+  buildWorkbook,
+  buildAdvancedReportWorkbook,
+  renderReportToPdf,
+  buildGameBoxScoreWorkbook,
+  renderGameBoxScoreToPdf,
+};

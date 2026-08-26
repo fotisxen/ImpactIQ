@@ -102,6 +102,7 @@ export interface Team {
   league_id: number;
   name: string;
   is_my_team: number;
+  league_name?: string;
 }
 
 export interface Player {
@@ -131,6 +132,17 @@ export interface PerLogRow {
   date: string;
   opponent: string;
   per: number | null;
+}
+
+/** One season's headline summary for a player or team — the raw material for the Dashboard's "History" tab. */
+export interface SeasonHistoryRow {
+  seasonId: number;
+  seasonYear: string;
+  games: number;
+  pts: number;
+  per: number | null;
+  pie: number | null;
+  netRating: number | null;
 }
 
 /** One game a player has data for, flattened across every league/cup they appear in — for the Player "Games" tab. */
@@ -496,8 +508,8 @@ export interface BoxscoreApi {
   extractBoxScore(base64Image: string, mediaType: string): Promise<ExtractedBoxScore>;
   extractPlayByPlay(base64File: string): Promise<PbpExtractedBoxScore>;
   saveGame(game: SaveGamePayload): Promise<number>;
-  getPlayerStats(playerId: number): Promise<StatSummary>;
-  getTeamStats(teamId: number): Promise<StatSummary>;
+  getPlayerStats(playerId: number, seasonId?: number | null): Promise<StatSummary>;
+  getTeamStats(teamId: number, seasonId?: number | null): Promise<StatSummary>;
   getLeagueAverages(leagueId: number, seasonId: number): Promise<StatSummary>;
   getLeaguePlayerAverages(leagueId: number, seasonId: number): Promise<StatSummary>;
   getLeagueTeamRankings(leagueId: number, seasonId: number): Promise<TeamRanking[]>;
@@ -515,6 +527,8 @@ export interface BoxscoreApi {
   listTeams(): Promise<Team[]>;
   listPlayers(teamId: number): Promise<Player[]>;
   listAllPlayers(): Promise<PlayerListEntry[]>;
+  getFavoriteTeam(): Promise<Team | null>;
+  setFavoriteTeam(teamId: number): Promise<{ saved: boolean }>;
 
   listLeagues(): Promise<League[]>;
   createLeague(league: { name: string; country?: string; tier?: string }): Promise<number>;
@@ -522,11 +536,13 @@ export interface BoxscoreApi {
   createSeason(season: { leagueId: number; year: string }): Promise<number>;
   createTeam(team: { leagueId: number; name: string; isMyTeam?: boolean }): Promise<number>;
 
-  getPlayerGameLog(playerId: number): Promise<GameLogRow[]>;
-  getTeamGameLog(teamId: number): Promise<GameLogRow[]>;
-  getPlayerPieLog(playerId: number): Promise<PieLogRow[]>;
-  getPlayerPerLog(playerId: number): Promise<PerLogRow[]>;
-  getTeamPerLog(teamId: number): Promise<PerLogRow[]>;
+  getPlayerGameLog(playerId: number, seasonId?: number | null): Promise<GameLogRow[]>;
+  getTeamGameLog(teamId: number, seasonId?: number | null): Promise<GameLogRow[]>;
+  getPlayerPieLog(playerId: number, seasonId?: number | null): Promise<PieLogRow[]>;
+  getPlayerPerLog(playerId: number, seasonId?: number | null): Promise<PerLogRow[]>;
+  getTeamPerLog(teamId: number, seasonId?: number | null): Promise<PerLogRow[]>;
+  getPlayerSeasonHistory(playerId: number): Promise<SeasonHistoryRow[]>;
+  getTeamSeasonHistory(teamId: number): Promise<SeasonHistoryRow[]>;
   getPlayerGamesAllCompetitions(playerId: number): Promise<PlayerCrossCompetitionGameRow[]>;
   getTeamGamesAllCompetitions(teamId: number): Promise<TeamCrossCompetitionGameRow[]>;
 
@@ -573,6 +589,10 @@ export interface BoxscoreApi {
     teamId: number;
     seasonId: number;
     throughGame: number;
+  }): Promise<{ saved: boolean; filePath?: string }>;
+  exportGameBoxScore(params: {
+    format: 'excel' | 'pdf';
+    gameId: number;
   }): Promise<{ saved: boolean; filePath?: string }>;
 
   getTeamFourFactorsReport(teamId: number, seasonId: number): Promise<TeamFourFactorsReport | null>;

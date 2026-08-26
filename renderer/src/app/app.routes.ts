@@ -57,6 +57,11 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'compare',
+        loadComponent: () =>
+          import('./features/compare/compare.component').then((m) => m.CompareComponent),
+      },
+      {
         path: 'account',
         loadComponent: () =>
           import('./features/account/account.component').then((m) => m.AccountComponent),

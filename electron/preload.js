@@ -14,8 +14,8 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   saveGame: (game) => ipcRenderer.invoke('db:save-game', game),
 
   // Reads used by the dashboard / comparison views.
-  getPlayerStats: (playerId) => ipcRenderer.invoke('db:get-player-stats', playerId),
-  getTeamStats: (teamId) => ipcRenderer.invoke('db:get-team-stats', teamId),
+  getPlayerStats: (playerId, seasonId) => ipcRenderer.invoke('db:get-player-stats', playerId, seasonId),
+  getTeamStats: (teamId, seasonId) => ipcRenderer.invoke('db:get-team-stats', teamId, seasonId),
   getLeagueAverages: (leagueId, seasonId) =>
     ipcRenderer.invoke('db:get-league-averages', leagueId, seasonId),
   getLeaguePlayerAverages: (leagueId, seasonId) =>
@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   getPlayerAllCompetitions: (playerId) =>
     ipcRenderer.invoke('db:get-player-all-competitions', playerId),
   listTeams: () => ipcRenderer.invoke('db:list-teams'),
+  getFavoriteTeam: () => ipcRenderer.invoke('db:get-favorite-team'),
+  setFavoriteTeam: (teamId) => ipcRenderer.invoke('db:set-favorite-team', teamId),
   listPlayers: (teamId) => ipcRenderer.invoke('db:list-players', teamId),
   listAllPlayers: () => ipcRenderer.invoke('db:list-all-players'),
 
@@ -49,11 +51,13 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   createTeam: (team) => ipcRenderer.invoke('db:create-team', team),
 
   // Per-game history, for dashboard trend charts and recent-games tables.
-  getPlayerGameLog: (playerId) => ipcRenderer.invoke('db:get-player-game-log', playerId),
-  getTeamGameLog: (teamId) => ipcRenderer.invoke('db:get-team-game-log', teamId),
-  getPlayerPieLog: (playerId) => ipcRenderer.invoke('db:get-player-pie-log', playerId),
-  getPlayerPerLog: (playerId) => ipcRenderer.invoke('db:get-player-per-log', playerId),
-  getTeamPerLog: (teamId) => ipcRenderer.invoke('db:get-team-per-log', teamId),
+  getPlayerGameLog: (playerId, seasonId) => ipcRenderer.invoke('db:get-player-game-log', playerId, seasonId),
+  getTeamGameLog: (teamId, seasonId) => ipcRenderer.invoke('db:get-team-game-log', teamId, seasonId),
+  getPlayerPieLog: (playerId, seasonId) => ipcRenderer.invoke('db:get-player-pie-log', playerId, seasonId),
+  getPlayerPerLog: (playerId, seasonId) => ipcRenderer.invoke('db:get-player-per-log', playerId, seasonId),
+  getPlayerSeasonHistory: (playerId) => ipcRenderer.invoke('db:get-player-season-history', playerId),
+  getTeamSeasonHistory: (teamId) => ipcRenderer.invoke('db:get-team-season-history', teamId),
+  getTeamPerLog: (teamId, seasonId) => ipcRenderer.invoke('db:get-team-per-log', teamId, seasonId),
   getPlayerGamesAllCompetitions: (playerId) =>
     ipcRenderer.invoke('db:get-player-games-all-competitions', playerId),
   getTeamGamesAllCompetitions: (teamId) =>
@@ -113,6 +117,7 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
 
   // Opens a native save dialog and writes the per-metric advanced report (Excel or PDF).
   exportTeamAdvancedReport: (params) => ipcRenderer.invoke('export:team-advanced-report', params),
+  exportGameBoxScore: (params) => ipcRenderer.invoke('export:game-box-score', params),
 
   getTeamFourFactorsReport: (teamId, seasonId) =>
     ipcRenderer.invoke('db:get-team-four-factors-report', teamId, seasonId),

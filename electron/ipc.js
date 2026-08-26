@@ -50,7 +50,13 @@ const {
   createCheckoutSession,
   createPortalSession,
 } = require('./services/subscriptions');
-const { buildWorkbook, buildAdvancedReportWorkbook, renderReportToPdf } = require('./services/export');
+const {
+  buildWorkbook,
+  buildAdvancedReportWorkbook,
+  renderReportToPdf,
+  buildGameBoxScoreWorkbook,
+  renderGameBoxScoreToPdf,
+} = require('./services/export');
 
 function registerIpcHandlers(db, mainWindow) {
   ipcMain.handle('ocr:extract-box-score', async (_event, base64Image, mediaType) => {
@@ -186,6 +192,43 @@ function registerIpcHandlers(db, mainWindow) {
     return { saved: false };
   });
 
+  ipcMain.handle('export:game-box-score', async (_event, { format, gameId }) => {
+    const box = fetchGameBoxScore(db, gameId);
+    if (!box) return { saved: false };
+
+    const suggestedBase = `${box.homeTeamName}-vs-${box.awayTeamName}-${box.date}-box-score`.replace(
+      /[^\w .-]/g,
+      ''
+    );
+
+    if (format === 'excel') {
+      const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: 'Export box score',
+        defaultPath: `${suggestedBase}.xlsx`,
+        filters: [{ name: 'Excel workbook', extensions: ['xlsx'] }],
+      });
+      if (canceled || !filePath) return { saved: false };
+      const workbook = buildGameBoxScoreWorkbook(box);
+      const buffer = await workbook.xlsx.writeBuffer();
+      await fs.writeFile(filePath, buffer);
+      return { saved: true, filePath };
+    }
+
+    if (format === 'pdf') {
+      const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: 'Export box score',
+        defaultPath: `${suggestedBase}.pdf`,
+        filters: [{ name: 'PDF document', extensions: ['pdf'] }],
+      });
+      if (canceled || !filePath) return { saved: false };
+      const buffer = await renderGameBoxScoreToPdf(box);
+      await fs.writeFile(filePath, buffer);
+      return { saved: true, filePath };
+    }
+
+    return { saved: false };
+  });
+
   ipcMain.handle('db:get-team-four-factors-report', (_event, teamId, seasonId) =>
     computeTeamFourFactorsReport(db, teamId, seasonId)
   );
@@ -235,9 +278,9 @@ function registerIpcHandlers(db, mainWindow) {
 
   ipcMain.handle('db:get-game-insights', (_event, gameId) => buildGameInsights(db, gameId));
 
-  ipcMain.handle('db:get-player-stats', (_event, playerId) => computePlayerSummary(db, playerId));
+  ipcMain.handle('db:get-player-stats', (_event, playerId, seasonId) => computePlayerSummary(db, playerId, seasonId));
 
-  ipcMain.handle('db:get-team-stats', (_event, teamId) => computeTeamSummary(db, teamId));
+  ipcMain.handle('db:get-team-stats', (_event, teamId, seasonId) => computeTeamSummary(db, teamId, seasonId));
 
   ipcMain.handle('db:get-team-scouting-report', (_event, teamId) => buildTeamScoutingReport(db, teamId));
 
@@ -456,7 +499,27 @@ function registerIpcHandlers(db, mainWindow) {
 
   ipcMain.handle('db:get-game-win-probability', (_event, gameId) => computeGameWinProbability(db, gameId));
 
-  ipcMain.handle('db:list-teams', () => db.prepare(`SELECT * FROM teams ORDER BY name`).all());
+  ipcMain.handle('db:list-teams', () =>
+    db
+      .prepare(`SELECT t.*, l.name AS league_name FROM teams t JOIN leagues l ON l.id = t.league_id ORDER BY t.name`)
+      .all()
+  );
+
+  /** Single global favorite team, for the Dashboard's "My Team" quick-select — reuses the existing (previously write-only) is_my_team column. */
+  ipcMain.handle('db:get-favorite-team', () =>
+    db
+      .prepare(`SELECT t.*, l.name AS league_name FROM teams t JOIN leagues l ON l.id = t.league_id WHERE t.is_my_team = 1 LIMIT 1`)
+      .get() ?? null
+  );
+
+  ipcMain.handle('db:set-favorite-team', (_event, teamId) => {
+    const setFavoriteTx = db.transaction(() => {
+      db.prepare(`UPDATE teams SET is_my_team = 0 WHERE is_my_team = 1`).run();
+      db.prepare(`UPDATE teams SET is_my_team = 1 WHERE id = ?`).run(teamId);
+    });
+    setFavoriteTx();
+    return { saved: true };
+  });
 
   ipcMain.handle('db:list-players', (_event, teamId) =>
     db.prepare(`SELECT * FROM players WHERE team_id = ? ORDER BY name`).all(teamId)
@@ -507,7 +570,7 @@ function registerIpcHandlers(db, mainWindow) {
       .run(leagueId, name, isMyTeam ? 1 : 0).lastInsertRowid;
   });
 
-  ipcMain.handle('db:get-player-game-log', (_event, playerId) =>
+  ipcMain.handle('db:get-player-game-log', (_event, playerId, seasonId) =>
     db
       .prepare(
         `SELECT bs.*, g.date AS date,
@@ -517,13 +580,13 @@ function registerIpcHandlers(db, mainWindow) {
          JOIN games g ON g.id = bs.game_id
          JOIN teams home ON home.id = g.home_team_id
          JOIN teams away ON away.id = g.away_team_id
-         WHERE bs.player_id = ?
+         WHERE bs.player_id = ? AND (? IS NULL OR g.season_id = ?)
          ORDER BY g.date ASC`
       )
-      .all(playerId)
+      .all(playerId, seasonId ?? null, seasonId ?? null)
   );
 
-  ipcMain.handle('db:get-player-pie-log', (_event, playerId) => {
+  ipcMain.handle('db:get-player-pie-log', (_event, playerId, seasonId) => {
     const games = db
       .prepare(
         `SELECT bs.*, g.id AS game_id, g.date AS date, p.team_id AS team_id,
@@ -534,10 +597,10 @@ function registerIpcHandlers(db, mainWindow) {
          JOIN games g ON g.id = bs.game_id
          JOIN teams home ON home.id = g.home_team_id
          JOIN teams away ON away.id = g.away_team_id
-         WHERE bs.player_id = ?
+         WHERE bs.player_id = ? AND (? IS NULL OR g.season_id = ?)
          ORDER BY g.date ASC`
       )
-      .all(playerId);
+      .all(playerId, seasonId ?? null, seasonId ?? null);
 
     const teamRowsStmt = db.prepare(
       `SELECT bs2.* FROM box_scores bs2 JOIN players p2 ON p2.id = bs2.player_id
@@ -563,12 +626,12 @@ function registerIpcHandlers(db, mainWindow) {
    * already uses for PIE's opponent totals. A true isolated per-game PER
    * isn't a standard concept — this mirrors how real per-game PER charts work.
    */
-  ipcMain.handle('db:get-player-per-log', (_event, playerId) => {
+  ipcMain.handle('db:get-player-per-log', (_event, playerId, seasonId) => {
     const player = db.prepare(`SELECT team_id FROM players WHERE id = ?`).get(playerId);
     if (!player) return [];
     const team = db.prepare(`SELECT league_id FROM teams WHERE id = ?`).get(player.team_id);
-    const teamAgg = teamAggregate(db, player.team_id);
-    const leagueAgg = leagueAggregate(db, team.league_id);
+    const teamAgg = teamAggregate(db, player.team_id, seasonId);
+    const leagueAgg = seasonId ? leagueAggregateForSeason(db, team.league_id, seasonId) : leagueAggregate(db, team.league_id);
 
     const games = db
       .prepare(
@@ -579,10 +642,10 @@ function registerIpcHandlers(db, mainWindow) {
          JOIN games g ON g.id = bs.game_id
          JOIN teams home ON home.id = g.home_team_id
          JOIN teams away ON away.id = g.away_team_id
-         WHERE bs.player_id = ?
+         WHERE bs.player_id = ? AND (? IS NULL OR g.season_id = ?)
          ORDER BY g.date ASC`
       )
-      .all(playerId);
+      .all(playerId, seasonId ?? null, seasonId ?? null);
 
     return games.map((g) => ({
       game_id: g.game_id,
@@ -597,6 +660,9 @@ function registerIpcHandlers(db, mainWindow) {
       }),
     }));
   });
+
+  ipcMain.handle('db:get-player-season-history', (_event, playerId) => computePlayerSeasonHistory(db, playerId));
+  ipcMain.handle('db:get-team-season-history', (_event, teamId) => computeTeamSeasonHistory(db, teamId));
 
   /**
    * Every game a player has data for, across every league/cup they appear
@@ -704,7 +770,7 @@ function registerIpcHandlers(db, mainWindow) {
     return rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   });
 
-  ipcMain.handle('db:get-team-game-log', (_event, teamId) =>
+  ipcMain.handle('db:get-team-game-log', (_event, teamId, seasonId) =>
     db
       .prepare(
         `SELECT g.id AS game_id, g.date AS date,
@@ -718,19 +784,19 @@ function registerIpcHandlers(db, mainWindow) {
          JOIN games g ON g.id = bs.game_id
          JOIN teams home ON home.id = g.home_team_id
          JOIN teams away ON away.id = g.away_team_id
-         WHERE p.team_id = ?
+         WHERE p.team_id = ? AND (? IS NULL OR g.season_id = ?)
          GROUP BY g.id
          ORDER BY g.date ASC`
       )
-      .all(teamId, teamId)
+      .all(teamId, teamId, seasonId ?? null, seasonId ?? null)
   );
 
   /** PER per game for a team — same "one game through the season's rate constants" approach as db:get-player-per-log. */
-  ipcMain.handle('db:get-team-per-log', (_event, teamId) => {
+  ipcMain.handle('db:get-team-per-log', (_event, teamId, seasonId) => {
     const team = db.prepare(`SELECT league_id FROM teams WHERE id = ?`).get(teamId);
     if (!team) return [];
-    const teamAgg = teamAggregate(db, teamId);
-    const leagueAgg = leagueAggregate(db, team.league_id);
+    const teamAgg = teamAggregate(db, teamId, seasonId);
+    const leagueAgg = seasonId ? leagueAggregateForSeason(db, team.league_id, seasonId) : leagueAggregate(db, team.league_id);
 
     const games = db
       .prepare(
@@ -745,11 +811,11 @@ function registerIpcHandlers(db, mainWindow) {
          JOIN games g ON g.id = bs.game_id
          JOIN teams home ON home.id = g.home_team_id
          JOIN teams away ON away.id = g.away_team_id
-         WHERE p.team_id = ?
+         WHERE p.team_id = ? AND (? IS NULL OR g.season_id = ?)
          GROUP BY g.id
          ORDER BY g.date ASC`
       )
-      .all(teamId, teamId);
+      .all(teamId, teamId, seasonId ?? null, seasonId ?? null);
 
     return games.map((g) => ({
       game_id: g.game_id,
@@ -875,25 +941,38 @@ function buildGameInsights(db, gameId) {
 }
 
 /** Whether ANY of a player's saved games came from a play-by-play import — the only source that records real +/-. */
-function playerHasPlayByPlayData(db, playerId) {
-  const row = db
-    .prepare(
-      `SELECT 1 FROM box_scores bs
-       WHERE bs.player_id = ? AND EXISTS (SELECT 1 FROM game_events ge WHERE ge.game_id = bs.game_id)
-       LIMIT 1`
-    )
-    .get(playerId);
+function playerHasPlayByPlayData(db, playerId, seasonId) {
+  const row = seasonId
+    ? db
+        .prepare(
+          `SELECT 1 FROM box_scores bs
+           JOIN games g ON g.id = bs.game_id
+           WHERE bs.player_id = ? AND g.season_id = ? AND EXISTS (SELECT 1 FROM game_events ge WHERE ge.game_id = bs.game_id)
+           LIMIT 1`
+        )
+        .get(playerId, seasonId)
+    : db
+        .prepare(
+          `SELECT 1 FROM box_scores bs
+           WHERE bs.player_id = ? AND EXISTS (SELECT 1 FROM game_events ge WHERE ge.game_id = bs.game_id)
+           LIMIT 1`
+        )
+        .get(playerId);
   return !!row;
 }
 
-function computePlayerSummary(db, playerId) {
-  const rows = db.prepare(`SELECT * FROM box_scores WHERE player_id = ?`).all(playerId);
+function computePlayerSummary(db, playerId, seasonId) {
+  const rows = seasonId
+    ? db
+        .prepare(`SELECT bs.* FROM box_scores bs JOIN games g ON g.id = bs.game_id WHERE bs.player_id = ? AND g.season_id = ?`)
+        .all(playerId, seasonId)
+    : db.prepare(`SELECT * FROM box_scores WHERE player_id = ?`).all(playerId);
   const player = db.prepare(`SELECT team_id FROM players WHERE id = ?`).get(playerId);
   const team = db.prepare(`SELECT league_id FROM teams WHERE id = ?`).get(player.team_id);
 
-  const teamAgg = teamAggregate(db, player.team_id);
-  const oppAgg = opponentAggregate(db, player.team_id);
-  const leagueAgg = leagueAggregate(db, team.league_id);
+  const teamAgg = teamAggregate(db, player.team_id, seasonId);
+  const oppAgg = opponentAggregate(db, player.team_id, seasonId);
+  const leagueAgg = seasonId ? leagueAggregateForSeason(db, team.league_id, seasonId) : leagueAggregate(db, team.league_id);
   return buildStatSummary({
     rows,
     games: rows.length,
@@ -901,16 +980,69 @@ function computePlayerSummary(db, playerId) {
     teamAgg,
     oppAgg,
     leagueAgg,
-    hasPlayByPlayData: playerHasPlayByPlayData(db, playerId),
+    hasPlayByPlayData: playerHasPlayByPlayData(db, playerId, seasonId),
   });
 }
 
-function computeTeamSummary(db, teamId) {
-  const teamAgg = teamAggregate(db, teamId);
-  const oppAgg = opponentAggregate(db, teamId);
+function computeTeamSummary(db, teamId, seasonId) {
+  const teamAgg = teamAggregate(db, teamId, seasonId);
+  const oppAgg = opponentAggregate(db, teamId, seasonId);
   const team = db.prepare(`SELECT league_id FROM teams WHERE id = ?`).get(teamId);
-  const leagueAgg = leagueAggregate(db, team.league_id);
+  const leagueAgg = seasonId ? leagueAggregateForSeason(db, team.league_id, seasonId) : leagueAggregate(db, team.league_id);
   return buildStatSummary({ rows: teamAgg.rows, games: teamAgg.games, isTeam: true, teamAgg, oppAgg, leagueAgg });
+}
+
+/** Every season this player has box-score rows in, oldest first — the raw material for the Dashboard's "History" tab. */
+function computePlayerSeasonHistory(db, playerId) {
+  const seasons = db
+    .prepare(
+      `SELECT DISTINCT g.season_id AS id, s.year
+       FROM box_scores bs
+       JOIN games g ON g.id = bs.game_id
+       JOIN seasons s ON s.id = g.season_id
+       WHERE bs.player_id = ?
+       ORDER BY s.year ASC`
+    )
+    .all(playerId);
+
+  return seasons.map((s) => {
+    const summary = computePlayerSummary(db, playerId, s.id);
+    return {
+      seasonId: s.id,
+      seasonYear: s.year,
+      games: summary.games,
+      pts: summary.perGame['pts'] ?? 0,
+      per: summary.per,
+      pie: summary.pie,
+      netRating: summary.netRating,
+    };
+  });
+}
+
+/** Same shape as computePlayerSeasonHistory, for a team. */
+function computeTeamSeasonHistory(db, teamId) {
+  const seasons = db
+    .prepare(
+      `SELECT DISTINCT g.season_id AS id, s.year
+       FROM games g
+       JOIN seasons s ON s.id = g.season_id
+       WHERE g.home_team_id = ? OR g.away_team_id = ?
+       ORDER BY s.year ASC`
+    )
+    .all(teamId, teamId);
+
+  return seasons.map((s) => {
+    const summary = computeTeamSummary(db, teamId, s.id);
+    return {
+      seasonId: s.id,
+      seasonYear: s.year,
+      games: summary.games,
+      pts: summary.perGame['pts'] ?? 0,
+      per: summary.per,
+      pie: summary.pie,
+      netRating: summary.netRating,
+    };
+  });
 }
 
 /** Every game a team played, split by win/loss, with both sides' totals — the raw material for "what goes wrong when they lose". */
@@ -1211,10 +1343,19 @@ function computePlayerAdvancedGameLog(db, playerId) {
   });
 }
 
-function teamAggregate(db, teamId) {
-  const rows = db
-    .prepare(`SELECT bs.* FROM box_scores bs JOIN players p ON p.id = bs.player_id WHERE p.team_id = ?`)
-    .all(teamId);
+function teamAggregate(db, teamId, seasonId) {
+  const rows = seasonId
+    ? db
+        .prepare(
+          `SELECT bs.* FROM box_scores bs
+           JOIN players p ON p.id = bs.player_id
+           JOIN games g ON g.id = bs.game_id
+           WHERE p.team_id = ? AND g.season_id = ?`
+        )
+        .all(teamId, seasonId)
+    : db
+        .prepare(`SELECT bs.* FROM box_scores bs JOIN players p ON p.id = bs.player_id WHERE p.team_id = ?`)
+        .all(teamId);
   return { rows, totals: sumRows(rows), games: new Set(rows.map((r) => r.game_id)).size };
 }
 
@@ -1225,17 +1366,29 @@ function teamAggregate(db, teamId) {
  * `games.home_team_id`/`away_team_id` to find, for each of the team's
  * games, whichever side it wasn't on.
  */
-function opponentAggregate(db, teamId) {
-  const rows = db
-    .prepare(
-      `SELECT bs.*
-       FROM box_scores bs
-       JOIN players p ON p.id = bs.player_id
-       JOIN games g ON g.id = bs.game_id
-       WHERE (g.home_team_id = ? AND p.team_id = g.away_team_id)
-          OR (g.away_team_id = ? AND p.team_id = g.home_team_id)`
-    )
-    .all(teamId, teamId);
+function opponentAggregate(db, teamId, seasonId) {
+  const rows = seasonId
+    ? db
+        .prepare(
+          `SELECT bs.*
+           FROM box_scores bs
+           JOIN players p ON p.id = bs.player_id
+           JOIN games g ON g.id = bs.game_id
+           WHERE g.season_id = ?
+             AND ((g.home_team_id = ? AND p.team_id = g.away_team_id)
+               OR (g.away_team_id = ? AND p.team_id = g.home_team_id))`
+        )
+        .all(seasonId, teamId, teamId)
+    : db
+        .prepare(
+          `SELECT bs.*
+           FROM box_scores bs
+           JOIN players p ON p.id = bs.player_id
+           JOIN games g ON g.id = bs.game_id
+           WHERE (g.home_team_id = ? AND p.team_id = g.away_team_id)
+              OR (g.away_team_id = ? AND p.team_id = g.home_team_id)`
+        )
+        .all(teamId, teamId);
   return { rows, totals: sumRows(rows), games: new Set(rows.map((r) => r.game_id)).size };
 }
 
@@ -1256,6 +1409,17 @@ function leagueAggregate(db, leagueId) {
        WHERE t.league_id = ?`
     )
     .all(leagueId);
+  return {
+    rows,
+    totals: sumRows(rows),
+    games: new Set(rows.map((r) => r.game_id)).size,
+    teamGames: new Set(rows.map((r) => `${r.game_id}:${r.team_id}`)).size,
+  };
+}
+
+/** Same shape as leagueAggregate, restricted to one season — the season-scoped counterpart used once a season is selected. */
+function leagueAggregateForSeason(db, leagueId, seasonId) {
+  const rows = leagueSeasonRows(db, leagueId, seasonId);
   return {
     rows,
     totals: sumRows(rows),

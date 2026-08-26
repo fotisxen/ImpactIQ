@@ -12,6 +12,7 @@ import { EntityPickerComponent, PickerOption } from '../../shared/components/ent
 import { LeaguePickerComponent } from '../../shared/components/league-picker.component';
 import { StatTileComponent } from '../../shared/components/stat-tile.component';
 import { ToastService } from '../../shared/services/toast.service';
+import { formatPlayerName } from '../../shared/utils/format-player-name';
 
 const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
 
@@ -94,7 +95,7 @@ const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
                     <tbody>
                       @for (l of lc.lineups; track l.playerNames.join(',')) {
                         <tr>
-                          <td>{{ l.playerNames.join(', ') }}</td>
+                          <td>{{ formatLineupNames(l.playerNames) }}</td>
                           <td>{{ l.minutes }}</td>
                           <td>{{ l.netRatingPer100 !== null ? l.netRatingPer100.toFixed(1) : '—' }}</td>
                         </tr>
@@ -346,6 +347,10 @@ export class FourFactorsComponent {
   protected readonly seasonOptions = computed<PickerOption[]>(() =>
     this.seasons().map((s) => ({ id: s.id, label: s.year }))
   );
+
+  protected formatLineupNames(names: string[]): string {
+    return names.map(formatPlayerName).join(', ');
+  }
 
   protected readonly lineupCombosMetric = computed<LineupCombosMetric | null>(() => {
     const r = this.report();

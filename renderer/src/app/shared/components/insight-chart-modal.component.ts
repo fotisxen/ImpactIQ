@@ -25,6 +25,16 @@ import { BaseChartDirective } from 'ng2-charts';
         <div class="chart-wrap">
           <canvas baseChart [type]="chartType()" [data]="data()" [options]="options()"></canvas>
         </div>
+        @if (extraRows().length > 0) {
+          <dl class="extra-rows">
+            @for (row of extraRows(); track row.label) {
+              <div class="extra-row">
+                <dt>{{ row.label }}</dt>
+                <dd>{{ row.value }}</dd>
+              </div>
+            }
+          </dl>
+        }
       </div>
     </div>
   `,
@@ -80,6 +90,29 @@ import { BaseChartDirective } from 'ng2-charts';
     .chart-wrap {
       height: 360px;
     }
+    .extra-rows {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      border-top: 1px solid var(--border);
+      padding-top: var(--space-3);
+      margin: 0;
+    }
+    .extra-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-3);
+    }
+    .extra-row dt {
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+    .extra-row dd {
+      margin: 0;
+      font-weight: 700;
+      font-size: 0.9rem;
+    }
   `,
 })
 export class InsightChartModalComponent {
@@ -88,5 +121,6 @@ export class InsightChartModalComponent {
   readonly chartType = input.required<ChartType>();
   readonly data = input.required<ChartData>();
   readonly options = input<ChartOptions>({});
+  readonly extraRows = input<{ label: string; value: string }[]>([]);
   readonly close = output<void>();
 }

@@ -64,6 +64,40 @@ import { RouterLink } from '@angular/router';
           <p>A player or team's stats roll up across every league and cup they play in — combined and per-competition.</p>
         </div>
       </section>
+
+      <section class="features">
+        <h2>Everywhere your data goes to work</h2>
+        <div class="feature-grid">
+          <a routerLink="/dashboard" class="feature-card">
+            <h3>Dashboard</h3>
+            <p>Player, Team, and League views with headline metrics, trend charts, season-scoped stats, standings, and a league-wide player leaderboard.</p>
+          </a>
+          <a routerLink="/four-factors" class="feature-card">
+            <h3>Four Factors</h3>
+            <p>Dean Oliver's framework broken into Primary, Context, and Strategic metrics — real numbers where the data supports them, an honest N/A everywhere else.</p>
+          </a>
+          <a routerLink="/game-insights" class="feature-card">
+            <h3>Game Insights</h3>
+            <p>Automatic per-player and per-team highlights — what stood out above or below their usual level, computed locally with no extra cost.</p>
+          </a>
+          <a routerLink="/import-pbp" class="feature-card">
+            <h3>Import play-by-play</h3>
+            <p>Bring in a full play-by-play file for a game to unlock lineup combinations, real Net Rating, assisted FG%, and other possession-level metrics.</p>
+          </a>
+          <a routerLink="/compare" class="feature-card">
+            <h3>Compare</h3>
+            <p>Two players or two teams side by side — pick each side's league, season, and subject independently and see who comes out ahead on every stat.</p>
+          </a>
+          <div class="feature-card static">
+            <h3>Export to Excel &amp; PDF</h3>
+            <p>Per-team advanced-metrics reports and individual box scores, ranked and formatted, ready to hand off or archive.</p>
+          </div>
+          <div class="feature-card static">
+            <h3>Dark &amp; light theme</h3>
+            <p>Switch themes any time from the sidebar — your choice is remembered.</p>
+          </div>
+        </div>
+      </section>
     </div>
   `,
   styles: `
@@ -173,6 +207,48 @@ import { RouterLink } from '@angular/router';
       color: var(--text-muted);
       font-size: 0.85rem;
       line-height: 1.5;
+    }
+
+    .features {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .features h2 {
+      font-size: 1.2rem;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: var(--space-4);
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      text-decoration: none;
+      color: inherit;
+      transition: border-color 0.15s ease, transform 0.15s ease;
+    }
+    a.feature-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .feature-card.static {
+      cursor: default;
+    }
+    .feature-card h3 {
+      font-size: 0.95rem;
+    }
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      line-height: 1.5;
+      margin: 0;
     }
   `,
 })

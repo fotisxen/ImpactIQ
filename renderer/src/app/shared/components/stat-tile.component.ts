@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { STAT_GLOSSARY } from '../utils/stat-glossary';
 
 /**
  * A single big-number stat display. `value` is pre-formatted by the caller
@@ -14,7 +15,15 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="tile" [class.clickable]="clickable()" (click)="onClick()">
-      <span class="tile-label">{{ label() }}</span>
+      <span class="tile-label-row">
+        <span class="tile-label">{{ label() }}</span>
+        @if (definition(); as def) {
+          <span class="info-icon" tabindex="0" (click)="$event.stopPropagation()">
+            ⓘ
+            <span class="tooltip-bubble">{{ def }}</span>
+          </span>
+        }
+      </span>
       <span class="tile-value">{{ value() }}</span>
       @if (diffLabel(); as d) {
         <span class="tile-diff" [class.positive]="diffSign() > 0" [class.negative]="diffSign() < 0">
@@ -43,12 +52,66 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
     .tile.clickable:hover {
       border-color: var(--accent);
     }
+    .tile-label-row {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
     .tile-label {
       font-size: 0.72rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--text-muted);
+    }
+    .info-icon {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 0.9rem;
+      height: 0.9rem;
+      border-radius: 50%;
+      font-size: 0.68rem;
+      font-weight: 400;
+      text-transform: none;
+      letter-spacing: normal;
+      color: var(--text-faint);
+      cursor: help;
+      outline: none;
+    }
+    .info-icon:hover,
+    .info-icon:focus-visible {
+      color: var(--accent);
+    }
+    .tooltip-bubble {
+      position: absolute;
+      z-index: 30;
+      bottom: calc(100% + 0.4rem);
+      left: 50%;
+      transform: translateX(-50%);
+      width: max-content;
+      max-width: 15rem;
+      background: var(--surface-raised);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      box-shadow: var(--shadow-lg);
+      padding: var(--space-2) var(--space-3);
+      color: var(--text);
+      font-size: 0.75rem;
+      font-weight: 500;
+      line-height: 1.4;
+      text-transform: none;
+      letter-spacing: normal;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.12s ease;
+      pointer-events: none;
+    }
+    .info-icon:hover .tooltip-bubble,
+    .info-icon:focus-visible .tooltip-bubble {
+      opacity: 1;
+      visibility: visible;
     }
     .tile-value {
       font-size: 1.85rem;
@@ -75,12 +138,16 @@ export class StatTileComponent {
   readonly value = input.required<string>();
   readonly diff = input<number | null>(null);
   readonly diffAgainst = input<string>('team');
+  /** Decimal places for the diff line — matches the tile's own value precision (see advNumFmt3 callers). */
+  readonly diffDecimals = input<number>(1);
   readonly clickable = input<boolean>(false);
   readonly tileClick = output<void>();
 
   protected onClick(): void {
     if (this.clickable()) this.tileClick.emit();
   }
+
+  protected readonly definition = computed(() => STAT_GLOSSARY[this.label()] ?? null);
 
   protected readonly diffSign = computed(() => {
     const d = this.diff();
@@ -92,6 +159,6 @@ export class StatTileComponent {
     const d = this.diff();
     if (d === null || Number.isNaN(d)) return null;
     const sign = d > 0 ? '+' : '';
-    return `${sign}${d.toFixed(1)}`;
+    return `${sign}${d.toFixed(this.diffDecimals())}`;
   });
 }

@@ -43,7 +43,13 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
 
       @if (mode() === 'game') {
         <div class="picker-card card">
-          <input type="text" placeholder="Search by team name…" [(ngModel)]="gameSearch" class="search-input" />
+          <input
+            type="text"
+            placeholder="Search by team name…"
+            [ngModel]="gameSearch()"
+            (ngModelChange)="gameSearch.set($event)"
+            class="search-input"
+          />
           <div class="result-list">
             @for (g of filteredGames(); track g.gameId) {
               <button
@@ -116,7 +122,13 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
 
       @if (mode() === 'team') {
         <div class="picker-card card">
-          <input type="text" placeholder="Search by team name…" [(ngModel)]="teamSearch" class="search-input" />
+          <input
+            type="text"
+            placeholder="Search by team name…"
+            [ngModel]="teamSearch()"
+            (ngModelChange)="teamSearch.set($event)"
+            class="search-input"
+          />
           <div class="result-list">
             @for (t of filteredTeams(); track t.id) {
               <button
@@ -126,6 +138,9 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
                 (click)="selectTeam(t.id)"
               >
                 <span class="result-title">{{ t.name }}</span>
+                @if (t.league_name) {
+                  <span class="result-meta">{{ t.league_name }}</span>
+                }
               </button>
             } @empty {
               <p class="hint">No teams yet.</p>
@@ -175,7 +190,7 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
                 <p class="hint">Not enough games yet to identify key players.</p>
               }
 
-              <h4>How to beat them</h4>
+              <h4>Key Weaknesses</h4>
               @for (i of r.lossPatternInsights; track i.text) {
                 <p class="insight-line negative">{{ i.text }}</p>
               } @empty {
@@ -192,7 +207,13 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
 
       @if (mode() === 'player') {
         <div class="picker-card card">
-          <input type="text" placeholder="Search by player name…" [(ngModel)]="playerSearch" class="search-input" />
+          <input
+            type="text"
+            placeholder="Search by player name…"
+            [ngModel]="playerSearch()"
+            (ngModelChange)="playerSearch.set($event)"
+            class="search-input"
+          />
           <div class="result-list">
             @for (p of filteredPlayers(); track p.id) {
               <button

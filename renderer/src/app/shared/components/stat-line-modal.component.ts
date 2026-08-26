@@ -83,13 +83,15 @@ export class StatLineModalComponent {
   readonly title = input.required<string>();
   readonly labels = input.required<string[]>();
   readonly data = input.required<number[]>();
+  /** Optional flat reference line (e.g. league average) drawn across every point. */
+  readonly averageValue = input<number | null>(null);
+  readonly averageLabel = input('League average');
   readonly close = output<void>();
 
   protected readonly options = baseChartOptions;
 
-  protected readonly chartData = computed<ChartConfiguration<'line'>['data']>(() => ({
-    labels: this.labels(),
-    datasets: [
+  protected readonly chartData = computed<ChartConfiguration<'line'>['data']>(() => {
+    const datasets: ChartConfiguration<'line'>['data']['datasets'] = [
       {
         label: this.title(),
         data: this.data(),
@@ -100,6 +102,21 @@ export class StatLineModalComponent {
         pointBackgroundColor: chartPalette.accent2,
         pointRadius: 3,
       },
-    ],
-  }));
+    ];
+    const avg = this.averageValue();
+    if (avg !== null) {
+      datasets.push({
+        label: this.averageLabel(),
+        data: this.labels().map(() => avg),
+        borderColor: chartPalette.textMuted,
+        borderDash: [6, 4],
+        backgroundColor: 'transparent',
+        fill: false,
+        tension: 0,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+      });
+    }
+    return { labels: this.labels(), datasets };
+  });
 }

@@ -11,6 +11,7 @@ import {
   PlayerCrossCompetitionGameRow,
   PlayerLeaderboardEntry,
   Season,
+  SeasonHistoryRow,
   StatSummary,
   Team,
   TeamCrossCompetitionGameRow,
@@ -37,6 +38,8 @@ export class DashboardService {
   readonly selectedPlayerId = signal<number | null>(null);
   readonly selectedLeagueId = signal<number | null>(null);
   readonly selectedSeasonId = signal<number | null>(null);
+  /** The single global "my team" pin, for the Dashboard's quick-select — null until one is set. */
+  readonly favoriteTeamId = signal<number | null>(null);
 
   readonly loading = signal(false);
   /** The entity being viewed: player, team, or league averages, per `mode`. */
@@ -58,6 +61,8 @@ export class DashboardService {
   /** Every game the current player/team has data for, across all competitions — for the Games tab. */
   readonly playerAllGames = signal<PlayerCrossCompetitionGameRow[]>([]);
   readonly teamAllGames = signal<TeamCrossCompetitionGameRow[]>([]);
+  /** One row per season this player/team has data in — for the "History" tab. */
+  readonly seasonHistory = signal<SeasonHistoryRow[]>([]);
 
   /** 'competition'-scope is the existing per-league view; 'all' combines every competition. Player/Team mode only. */
   readonly scope = signal<DashboardScope>('competition');
@@ -79,9 +84,30 @@ export class DashboardService {
   );
 
   async init(): Promise<void> {
-    const [teams, leagues] = await Promise.all([this.entities.listTeams(), this.entities.listLeagues()]);
+    const [teams, leagues, favorite] = await Promise.all([
+      this.entities.listTeams(),
+      this.entities.listLeagues(),
+      window.boxscoreApi.getFavoriteTeam(),
+    ]);
     this.teams.set(teams);
     this.leagues.set(leagues);
+    this.favoriteTeamId.set(favorite?.id ?? null);
+  }
+
+  async setFavoriteTeam(teamId: number): Promise<void> {
+    await window.boxscoreApi.setFavoriteTeam(teamId);
+    this.favoriteTeamId.set(teamId);
+  }
+
+  /** Jumps straight to the pinned favorite team in Team mode, skipping the manual League → Team re-pick. */
+  async selectFavoriteTeam(): Promise<void> {
+    const teamId = this.favoriteTeamId();
+    if (teamId === null) return;
+    const team = this.teams().find((t) => t.id === teamId);
+    if (!team) return;
+    this.mode.set('team');
+    await this.selectLeague(team.league_id);
+    await this.selectTeam(teamId);
   }
 
   setMode(mode: DashboardMode): void {
@@ -134,6 +160,7 @@ export class DashboardService {
       this.primary.set(null);
       this.teamBaseline.set(null);
       this.gameLog.set([]);
+      this.seasonHistory.set([]);
     }
   }
 
@@ -157,6 +184,10 @@ export class DashboardService {
     const leagueId = this.selectedLeagueId();
     if (this.mode() === 'league' && seasonId !== null && leagueId !== null) {
       await this.loadLeagueSummary(leagueId, seasonId);
+    } else if (this.mode() === 'player' && this.selectedPlayerId() !== null) {
+      await this.loadPlayer(this.selectedPlayerId()!);
+    } else if (this.mode() === 'team' && this.selectedTeamId() !== null) {
+      await this.loadTeam(this.selectedTeamId()!);
     }
   }
 
@@ -169,21 +200,24 @@ export class DashboardService {
   private async loadPlayer(playerId: number): Promise<void> {
     this.loading.set(true);
     try {
-      const [summary, log, pieTrend, perTrend, allGames] = await Promise.all([
-        window.boxscoreApi.getPlayerStats(playerId),
-        window.boxscoreApi.getPlayerGameLog(playerId),
-        window.boxscoreApi.getPlayerPieLog(playerId),
-        window.boxscoreApi.getPlayerPerLog(playerId),
+      const seasonId = this.selectedSeasonId();
+      const [summary, log, pieTrend, perTrend, allGames, history] = await Promise.all([
+        window.boxscoreApi.getPlayerStats(playerId, seasonId),
+        window.boxscoreApi.getPlayerGameLog(playerId, seasonId),
+        window.boxscoreApi.getPlayerPieLog(playerId, seasonId),
+        window.boxscoreApi.getPlayerPerLog(playerId, seasonId),
         window.boxscoreApi.getPlayerGamesAllCompetitions(playerId),
+        window.boxscoreApi.getPlayerSeasonHistory(playerId),
       ]);
       this.primary.set(summary);
       this.gameLog.set(log);
       this.pieTrendLog.set(pieTrend);
       this.perTrendLog.set(perTrend);
       this.playerAllGames.set(allGames);
+      this.seasonHistory.set(history);
 
       const teamId = this.selectedTeamId();
-      if (teamId !== null) this.teamBaseline.set(await window.boxscoreApi.getTeamStats(teamId));
+      if (teamId !== null) this.teamBaseline.set(await window.boxscoreApi.getTeamStats(teamId, seasonId));
     } finally {
       this.loading.set(false);
     }
@@ -192,16 +226,19 @@ export class DashboardService {
   private async loadTeam(teamId: number): Promise<void> {
     this.loading.set(true);
     try {
-      const [summary, log, perTrend, allGames] = await Promise.all([
-        window.boxscoreApi.getTeamStats(teamId),
-        window.boxscoreApi.getTeamGameLog(teamId),
-        window.boxscoreApi.getTeamPerLog(teamId),
+      const seasonId = this.selectedSeasonId();
+      const [summary, log, perTrend, allGames, history] = await Promise.all([
+        window.boxscoreApi.getTeamStats(teamId, seasonId),
+        window.boxscoreApi.getTeamGameLog(teamId, seasonId),
+        window.boxscoreApi.getTeamPerLog(teamId, seasonId),
         window.boxscoreApi.getTeamGamesAllCompetitions(teamId),
+        window.boxscoreApi.getTeamSeasonHistory(teamId),
       ]);
       this.primary.set(summary);
       this.gameLog.set(log);
       this.perTrendLog.set(perTrend);
       this.teamAllGames.set(allGames);
+      this.seasonHistory.set(history);
     } finally {
       this.loading.set(false);
     }
@@ -288,6 +325,7 @@ export class DashboardService {
     this.perTrendLog.set([]);
     this.playerAllGames.set([]);
     this.teamAllGames.set([]);
+    this.seasonHistory.set([]);
   }
 
   /** Navigates from the Team Roster tab straight to Player mode, pre-filtered for that player — same state as filtering manually. */

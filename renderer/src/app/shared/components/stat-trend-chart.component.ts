@@ -35,7 +35,7 @@ import { baseChartOptions, chartPalette } from '../utils/chart-theme';
       color: var(--text-muted);
     }
     .chart-wrap {
-      height: 260px;
+      height: 320px;
     }
   `,
 })

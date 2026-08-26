@@ -147,10 +147,12 @@ const LEAGUES = [
     country: 'Europe',
     tier: 'euroleague',
     teams: [
-      'Real Madrid', 'Barcelona', 'Baskonia', 'Valencia Basket', 'Olympiacos', 'Panathinaikos',
-      'Fenerbahçe Beko', 'Anadolu Efes', 'Maccabi Tel Aviv', 'Hapoel Tel Aviv', 'ASVEL',
-      'AS Monaco', 'Paris Basketball', 'Olimpia Milano', 'Virtus Bologna', 'Bayern Munich',
-      'Žalgiris', 'Crvena Zvezda', 'Partizan', 'Dubai Basketball',
+      'Real Madrid', 'FC Barcelona', 'Kosner Baskonia Vitoria-Gasteiz', 'Valencia Basket',
+      'Olympiacos Piraeus', 'Panathinaikos AKTOR Athens', 'Fenerbahce Beko Istanbul',
+      'Anadolu Efes Istanbul', 'Maccabi Rapyd Tel Aviv', 'Hapoel IBI Tel Aviv',
+      'LDLC ASVEL Villeurbanne', 'AS Monaco', 'Paris Basketball', 'EA7 Emporio Armani Milan',
+      'Virtus Bologna', 'FC Bayern Munich', 'Zalgiris Kaunas', 'Crvena Zvezda Meridianbet Belgrade',
+      'Partizan Mozzart Bet Belgrade', 'Dubai Basketball',
     ],
   },
   {
