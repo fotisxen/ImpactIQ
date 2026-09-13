@@ -18,6 +18,8 @@
     "@angular/platform-browser": "^18.2.0",
     "@angular/platform-browser-dynamic": "^18.2.0",
     "@angular/router": "^18.2.0",
+    "@sentry/angular": "10.73.0",
+    "@sentry/electron": "^7.18.0",
     "chart.js": "^4.5.1",
     "ng2-charts": "^6.0.1",
     "rxjs": "~7.8.0",

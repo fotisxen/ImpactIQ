@@ -54,17 +54,21 @@ const fileStorage = {
  * touch is protected by Row Level Security policies in the Supabase
  * project, not by keeping this key secret.
  */
+// Safe to ship hardcoded in a packaged build: this is the anon/publishable
+// key, not a secret — every table it can touch is protected by Row Level
+// Security, the same way a web app's Supabase client key is always public.
+// `.env` isn't bundled into the packaged app (see package.json's build.files),
+// so without this fallback a packaged build would fail at first launch with
+// "Supabase is not configured" — `.env` (when present, e.g. during `npm run
+// dev`) still takes priority, so nothing changes for local development.
+const FALLBACK_SUPABASE_URL = 'https://wnuhfyjmesurylehejwy.supabase.co';
+const FALLBACK_SUPABASE_ANON_KEY = 'sb_publishable_y7ZIrF5o5U1qc7d1ni1nHA_zqAMeHsv';
+
 function getSupabaseClient() {
   if (client) return client;
 
-  const url = process.env.SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY;
-
-  if (!url || !anonKey) {
-    throw new Error(
-      'Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY (see .env.example).'
-    );
-  }
+  const url = process.env.SUPABASE_URL || FALLBACK_SUPABASE_URL;
+  const anonKey = process.env.SUPABASE_ANON_KEY || FALLBACK_SUPABASE_ANON_KEY;
 
   client = createClient(url, anonKey, {
     auth: {

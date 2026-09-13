@@ -925,5 +925,7 @@ export interface BoxscoreApi {
 declare global {
   interface Window {
     boxscoreApi: BoxscoreApi;
+    /** Sentry DSN exposed by preload.js — empty string when monitoring isn't configured. */
+    __SENTRY_DSN__: string;
   }
 }

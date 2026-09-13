@@ -4,6 +4,14 @@ const fs = require('node:fs');
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
+// Crash/error reporting — a no-op until SENTRY_DSN is set (see .env.example).
+// Initialized before every other require so it can catch errors during their
+// own module-load time too, not just once the app is running.
+const Sentry = require('@sentry/electron/main');
+if (process.env.SENTRY_DSN) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
+}
+
 const { registerIpcHandlers } = require('./ipc');
 const { getSupabaseClient } = require('./services/supabaseClient');
 const { seedLeaguesAndTeams, ensureCurrentSeasons } = require('./db/seed');

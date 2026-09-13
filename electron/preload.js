@@ -1,5 +1,17 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Sentry needs its own light init inside this isolated preload context too
+// (contextIsolation:true means it's a separate JS world from the renderer's
+// own Sentry.init() in main.ts) — this one just relays through IPC to the
+// main process's init, it carries no config of its own.
+require('@sentry/electron/renderer').init();
+
+// Exposes the configured DSN (a public, client-safe identifier — not a
+// secret, same as the Supabase anon key) so the renderer's own Sentry.init()
+// can pick it up without needing its own copy of .env. Empty string when
+// SENTRY_DSN isn't set, which the renderer treats as "monitoring disabled".
+contextBridge.exposeInMainWorld('__SENTRY_DSN__', process.env.SENTRY_DSN || '');
+
 // Everything the Angular renderer is allowed to call. No direct fs/db/net
 // access from the renderer — it only ever talks through these channels.
 contextBridge.exposeInMainWorld('boxscoreApi', {
