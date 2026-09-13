@@ -715,12 +715,11 @@ export interface AdminOrganizationRow {
   memberCount: number;
 }
 
-/** A local team that's already been pushed to the cloud, so its remote id is known — see admin:list-syncable-teams. */
-export interface AdminSyncableTeam {
-  localId: number;
+/** A team, for the Admin page's "default team" picker. */
+export interface AdminTeam {
+  id: number;
   name: string;
   league_name: string | null;
-  remoteId: string;
 }
 
 export interface CreateAccountParams {
@@ -900,7 +899,7 @@ export interface BoxscoreApi {
   adminCreateAccount(params: CreateAccountParams): Promise<{ email: string; password: string; organizationId: string }>;
   adminListOrganizations(): Promise<AdminOrganizationRow[]>;
   adminUpdateOrganization(params: { organizationId: string; tier?: Tier; defaultTeamId?: number | null }): Promise<void>;
-  adminListSyncableTeams(): Promise<AdminSyncableTeam[]>;
+  adminListTeams(): Promise<AdminTeam[]>;
 
   exportExcel(
     payload: ExtractedBoxScore | StatSummary,

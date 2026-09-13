@@ -112,7 +112,7 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   adminCreateAccount: (params) => ipcRenderer.invoke('admin:create-account', params),
   adminListOrganizations: () => ipcRenderer.invoke('admin:list-organizations'),
   adminUpdateOrganization: (params) => ipcRenderer.invoke('admin:update-organization', params),
-  adminListSyncableTeams: () => ipcRenderer.invoke('admin:list-syncable-teams'),
+  adminListTeams: () => ipcRenderer.invoke('admin:list-teams'),
 
   // Fires when the user completes (or cancels) a Stripe flow and is routed
   // back to the app via a boxscore-analytics:// deep link — see main.js.

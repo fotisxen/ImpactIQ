@@ -49,7 +49,7 @@ const {
   createCheckoutSession,
   createPortalSession,
 } = require('./services/subscriptions');
-const { pushGameToCloud, pullCloudGames, retryPendingSyncs } = require('./services/dataSync');
+const { pullCloudGames } = require('./services/dataSync');
 const {
   createAccount: adminCreateAccount,
   listOrganizations: adminListOrganizations,
@@ -70,6 +70,13 @@ const {
   listPlayers,
   createPlayerAccount,
 } = require('./services/scoutingReportDistribution');
+const { getSupabaseClient } = require('./services/supabaseClient');
+
+/** Strips a nested-embed key (e.g. `leagues` from a `teams.select('*, leagues(name)')` row) after its fields have been flattened onto the result — keeps IPC payloads matching the plain-row shape the renderer already expects. */
+function rowWithoutEmbed(row, embedKey) {
+  const { [embedKey]: _embed, ...rest } = row;
+  return rest;
+}
 
 function registerIpcHandlers(db, mainWindow) {
   ipcMain.handle('ocr:extract-box-score', async (_event, base64Image, mediaType) => {
@@ -135,22 +142,15 @@ function registerIpcHandlers(db, mainWindow) {
   ipcMain.handle('admin:list-organizations', () => adminListOrganizations());
   ipcMain.handle('admin:update-organization', (_event, params) => adminUpdateOrganization(params));
 
-  // organizations.default_team_id is a Supabase-side FK, so the "default
-  // team" picker can only offer teams this install has actually pushed to
-  // the cloud (i.e. already have a row in sync_map) — a local team the
-  // admin never uploaded a game for has no remote id to point the column
-  // at yet. Local-only query, no Supabase round trip.
-  ipcMain.handle('admin:list-syncable-teams', () =>
-    db
-      .prepare(
-        `SELECT t.id AS localId, t.name, l.name AS league_name, sm.remote_id AS remoteId
-         FROM teams t
-         JOIN leagues l ON l.id = t.league_id
-         JOIN sync_map sm ON sm.entity_type = 'team' AND sm.local_id = t.id
-         ORDER BY t.name`
-      )
-      .all()
-  );
+  // Every team already lives in Supabase directly now (no more local <->
+  // remote id bridge), so the "default team" picker just reads the same
+  // table everything else does.
+  ipcMain.handle('admin:list-teams', async () => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from('teams').select('id, name, leagues(name)').order('name');
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((t) => ({ id: t.id, name: t.name, league_name: t.leagues?.name ?? null }));
+  });
 
   ipcMain.handle('export:excel', async (_event, { payload, suggestedName }) => {
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
@@ -342,23 +342,31 @@ function registerIpcHandlers(db, mainWindow) {
     computeTeamFourFactorsReport(db, teamId, seasonId)
   );
 
-  ipcMain.handle('db:update-player-position', (_event, playerId, position) => {
-    db.prepare(`UPDATE players SET position = ? WHERE id = ?`).run(position || null, playerId);
+  ipcMain.handle('db:update-player-position', async (_event, playerId, position) => {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.from('players').update({ position: position || null }).eq('id', playerId);
+    if (error) throw new Error(error.message);
     return { saved: true };
   });
 
-  ipcMain.handle('db:update-player-depth-rank', (_event, playerId, depthRank) => {
-    db.prepare(`UPDATE players SET depth_rank = ? WHERE id = ?`).run(depthRank ?? null, playerId);
+  ipcMain.handle('db:update-player-depth-rank', async (_event, playerId, depthRank) => {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.from('players').update({ depth_rank: depthRank ?? null }).eq('id', playerId);
+    if (error) throw new Error(error.message);
     return { saved: true };
   });
 
-  ipcMain.handle('db:update-player-height', (_event, playerId, height) => {
-    db.prepare(`UPDATE players SET height = ? WHERE id = ?`).run(height || null, playerId);
+  ipcMain.handle('db:update-player-height', async (_event, playerId, height) => {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.from('players').update({ height: height || null }).eq('id', playerId);
+    if (error) throw new Error(error.message);
     return { saved: true };
   });
 
-  ipcMain.handle('db:update-player-hidden', (_event, playerId, hidden) => {
-    db.prepare(`UPDATE players SET hidden = ? WHERE id = ?`).run(hidden ? 1 : 0, playerId);
+  ipcMain.handle('db:update-player-hidden', async (_event, playerId, hidden) => {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.from('players').update({ hidden: !!hidden }).eq('id', playerId);
+    if (error) throw new Error(error.message);
     return { saved: true };
   });
 
@@ -460,32 +468,42 @@ function registerIpcHandlers(db, mainWindow) {
   ipcMain.handle('db:save-game', async (_event, game) => {
     const tier = await getTier();
     if (tier.isPro) throw new Error('Pro plan is read-only — game entry is not available.');
+    if (!tier.organizationId) {
+      throw new Error('Your account needs to be assigned to a club before saving games — contact your administrator.');
+    }
+
+    const supabase = getSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) throw new Error('You need to be logged in to save a game.');
 
     const source = game.source === 'manual' ? 'manual' : 'photo';
-    const saveTx = db.transaction((g) => {
-      const teamId = upsertTeam(db, g.team, g.leagueId);
-      const oppId = upsertTeam(db, g.opponent, g.leagueId);
+    const teamId = await upsertTeam(supabase, game.team, game.leagueId);
+    const oppId = await upsertTeam(supabase, game.opponent, game.leagueId);
 
-      const gameId = db
-        .prepare(
-          `INSERT INTO games (season_id, date, home_team_id, away_team_id, source)
-           VALUES (@seasonId, @date, @homeTeamId, @awayTeamId, @source)`
-        )
-        .run({ seasonId: g.seasonId, date: g.date, homeTeamId: teamId, awayTeamId: oppId, source }).lastInsertRowid;
+    const { data: createdGame, error: gameErr } = await supabase
+      .from('games')
+      .insert({
+        season_id: game.seasonId,
+        date: game.date,
+        home_team_id: teamId,
+        away_team_id: oppId,
+        source,
+        owner_user_id: user.id,
+        organization_id: tier.organizationId,
+      })
+      .select('id')
+      .single();
+    if (gameErr) throw new Error(`save game: ${gameErr.message}`);
+    const gameId = createdGame.id;
 
-      insertRoster(db, gameId, teamId, g.players || []);
-      insertRoster(db, gameId, oppId, g.opponentPlayers || []);
-      if (g.events && g.events.length > 0) insertGameEvents(db, gameId, teamId, oppId, g.events);
-      return gameId;
-    });
-
-    const gameId = saveTx(game);
-    try {
-      await pushGameToCloud(db, gameId);
-    } catch (err) {
-      console.error('pushGameToCloud failed, will retry next launch:', err);
-      db.prepare(`UPDATE games SET pending_sync = 1 WHERE id = ?`).run(gameId);
+    await insertRoster(supabase, gameId, teamId, game.players || []);
+    await insertRoster(supabase, gameId, oppId, game.opponentPlayers || []);
+    if (game.events && game.events.length > 0) {
+      await insertGameEvents(supabase, gameId, teamId, oppId, game.events);
     }
+
     return gameId;
   });
 
@@ -737,25 +755,28 @@ function registerIpcHandlers(db, mainWindow) {
 
   ipcMain.handle('db:get-game-win-probability', (_event, gameId) => computeGameWinProbability(db, gameId));
 
-  ipcMain.handle('db:list-teams', () =>
-    db
-      .prepare(`SELECT t.*, l.name AS league_name FROM teams t JOIN leagues l ON l.id = t.league_id ORDER BY t.name`)
-      .all()
-  );
+  ipcMain.handle('db:list-teams', async () => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from('teams').select('*, leagues(name)').order('name');
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((t) => ({ ...rowWithoutEmbed(t, 'leagues'), league_name: t.leagues?.name ?? null, is_my_team: t.is_my_team ? 1 : 0 }));
+  });
 
   /** Single global favorite team, for the Dashboard's "My Team" quick-select — reuses the existing (previously write-only) is_my_team column. */
-  ipcMain.handle('db:get-favorite-team', () =>
-    db
-      .prepare(`SELECT t.*, l.name AS league_name FROM teams t JOIN leagues l ON l.id = t.league_id WHERE t.is_my_team = 1 LIMIT 1`)
-      .get() ?? null
-  );
+  ipcMain.handle('db:get-favorite-team', async () => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from('teams').select('*, leagues(name)').eq('is_my_team', true).limit(1).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    return { ...rowWithoutEmbed(data, 'leagues'), league_name: data.leagues?.name ?? null, is_my_team: 1 };
+  });
 
-  ipcMain.handle('db:set-favorite-team', (_event, teamId) => {
-    const setFavoriteTx = db.transaction(() => {
-      db.prepare(`UPDATE teams SET is_my_team = 0 WHERE is_my_team = 1`).run();
-      db.prepare(`UPDATE teams SET is_my_team = 1 WHERE id = ?`).run(teamId);
-    });
-    setFavoriteTx();
+  ipcMain.handle('db:set-favorite-team', async (_event, teamId) => {
+    const supabase = getSupabaseClient();
+    const { error: clearErr } = await supabase.from('teams').update({ is_my_team: false }).eq('is_my_team', true);
+    if (clearErr) throw new Error(clearErr.message);
+    const { error: setErr } = await supabase.from('teams').update({ is_my_team: true }).eq('id', teamId);
+    if (setErr) throw new Error(setErr.message);
     return { saved: true };
   });
 
@@ -801,53 +822,90 @@ function registerIpcHandlers(db, mainWindow) {
     db.prepare(`SELECT x, y, made, value FROM shot_events WHERE player_id = ? AND season_id = ?`).all(playerId, seasonId)
   );
 
-  ipcMain.handle('db:list-players', (_event, teamId) =>
-    db.prepare(`SELECT * FROM players WHERE team_id = ? ORDER BY name`).all(teamId)
-  );
-
-  ipcMain.handle('db:list-all-players', () =>
-    db
-      .prepare(
-        `SELECT p.id, p.name, p.team_id AS teamId, t.name AS teamName
-         FROM players p JOIN teams t ON t.id = p.team_id
-         ORDER BY p.name`
-      )
-      .all()
-  );
-
-  ipcMain.handle('db:list-leagues', () => db.prepare(`SELECT * FROM leagues ORDER BY name`).all());
-
-  ipcMain.handle('db:create-league', (_event, { name, country, tier }) => {
-    const existing = db.prepare(`SELECT id FROM leagues WHERE name = ?`).get(name);
-    if (existing) return existing.id;
-    return db
-      .prepare(`INSERT INTO leagues (name, country, tier, source) VALUES (?, ?, ?, 'manual')`)
-      .run(name, country || null, tier || null).lastInsertRowid;
+  ipcMain.handle('db:list-players', async (_event, teamId) => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from('players').select('*').eq('team_id', teamId).order('name');
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((p) => ({ ...p, hidden: p.hidden ? 1 : 0 }));
   });
 
-  ipcMain.handle('db:list-seasons', (_event, leagueId) =>
-    db.prepare(`SELECT * FROM seasons WHERE league_id = ? ORDER BY year DESC`).all(leagueId)
-  );
-
-  ipcMain.handle('db:create-season', (_event, { leagueId, year }) => {
-    const existing = db
-      .prepare(`SELECT id FROM seasons WHERE league_id = ? AND year = ?`)
-      .get(leagueId, year);
-    if (existing) return existing.id;
-    return db
-      .prepare(`INSERT INTO seasons (league_id, year) VALUES (?, ?)`)
-      .run(leagueId, year).lastInsertRowid;
+  ipcMain.handle('db:list-all-players', async () => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from('players').select('id, name, team_id, teams(name)').order('name');
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((p) => ({ id: p.id, name: p.name, teamId: p.team_id, teamName: p.teams?.name ?? null }));
   });
 
-  ipcMain.handle('db:create-team', (_event, { leagueId, name, isMyTeam }) => {
-    const existing = db.prepare(`SELECT id FROM teams WHERE name = ? AND league_id = ?`).get(name, leagueId);
+  ipcMain.handle('db:list-leagues', async () => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from('leagues').select('*').order('name');
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+  ipcMain.handle('db:create-league', async (_event, { name, country, tier }) => {
+    const supabase = getSupabaseClient();
+    const { data: existing, error: findErr } = await supabase.from('leagues').select('id').eq('name', name).maybeSingle();
+    if (findErr) throw new Error(findErr.message);
+    if (existing) return existing.id;
+    const { data: created, error: insertErr } = await supabase
+      .from('leagues')
+      .insert({ name, country: country || null, tier: tier || null, source: 'manual' })
+      .select('id')
+      .single();
+    if (insertErr) throw new Error(insertErr.message);
+    return created.id;
+  });
+
+  ipcMain.handle('db:list-seasons', async (_event, leagueId) => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from('seasons').select('*').eq('league_id', leagueId).order('year', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
+  ipcMain.handle('db:create-season', async (_event, { leagueId, year }) => {
+    const supabase = getSupabaseClient();
+    const { data: existing, error: findErr } = await supabase
+      .from('seasons')
+      .select('id')
+      .eq('league_id', leagueId)
+      .eq('year', year)
+      .maybeSingle();
+    if (findErr) throw new Error(findErr.message);
+    if (existing) return existing.id;
+    const { data: created, error: insertErr } = await supabase
+      .from('seasons')
+      .insert({ league_id: leagueId, year })
+      .select('id')
+      .single();
+    if (insertErr) throw new Error(insertErr.message);
+    return created.id;
+  });
+
+  ipcMain.handle('db:create-team', async (_event, { leagueId, name, isMyTeam }) => {
+    const supabase = getSupabaseClient();
+    const { data: existing, error: findErr } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('name', name)
+      .eq('league_id', leagueId)
+      .maybeSingle();
+    if (findErr) throw new Error(findErr.message);
     if (existing) {
-      if (isMyTeam) db.prepare(`UPDATE teams SET is_my_team = 1 WHERE id = ?`).run(existing.id);
+      if (isMyTeam) {
+        const { error: updateErr } = await supabase.from('teams').update({ is_my_team: true }).eq('id', existing.id);
+        if (updateErr) throw new Error(updateErr.message);
+      }
       return existing.id;
     }
-    return db
-      .prepare(`INSERT INTO teams (league_id, name, is_my_team) VALUES (?, ?, ?)`)
-      .run(leagueId, name, isMyTeam ? 1 : 0).lastInsertRowid;
+    const { data: created, error: insertErr } = await supabase
+      .from('teams')
+      .insert({ league_id: leagueId, name, is_my_team: !!isMyTeam })
+      .select('id')
+      .single();
+    if (insertErr) throw new Error(insertErr.message);
+    return created.id;
   });
 
   ipcMain.handle('db:get-player-game-log', (_event, playerId, seasonId) =>
@@ -2853,15 +2911,32 @@ function computeLeagueImpactRatings(db, leagueId, seasonId) {
   return results.sort((a, b) => (b.rating ?? -999) - (a.rating ?? -999));
 }
 
-function insertRoster(db, gameId, teamId, players) {
+async function insertRoster(supabase, gameId, teamId, players) {
   for (const p of players) {
-    const playerId = upsertPlayer(db, p.name, teamId);
-    db.prepare(
-      `INSERT INTO box_scores
-         (game_id, player_id, min, pts, fgm, fga, tpm, tpa, ftm, fta, oreb, dreb, ast, stl, blk, tov, pf, pfd, plus_minus, srj)
-       VALUES
-         (@gameId, @playerId, @min, @pts, @fgm, @fga, @tpm, @tpa, @ftm, @fta, @oreb, @dreb, @ast, @stl, @blk, @tov, @pf, @pfd, @plus_minus, @srj)`
-    ).run({ gameId, playerId, pfd: 0, plus_minus: 0, srj: 0, ...p });
+    const playerId = await upsertPlayer(supabase, p.name, teamId);
+    const { error } = await supabase.from('box_scores').insert({
+      game_id: gameId,
+      player_id: playerId,
+      min: p.min,
+      pts: p.pts,
+      fgm: p.fgm,
+      fga: p.fga,
+      tpm: p.tpm,
+      tpa: p.tpa,
+      ftm: p.ftm,
+      fta: p.fta,
+      oreb: p.oreb,
+      dreb: p.dreb,
+      ast: p.ast,
+      stl: p.stl,
+      blk: p.blk,
+      tov: p.tov,
+      pf: p.pf,
+      pfd: p.pfd ?? 0,
+      plus_minus: p.plus_minus ?? 0,
+      srj: p.srj ?? 0,
+    });
+    if (error) throw new Error(`insert box score: ${error.message}`);
   }
 }
 
@@ -2873,36 +2948,57 @@ function insertRoster(db, gameId, teamId, players) {
  * an event for the old name would create a stray player row instead of
  * matching — an acceptable edge case for how rarely that'll happen).
  */
-function insertGameEvents(db, gameId, homeTeamId, awayTeamId, events) {
-  const insert = db.prepare(
-    `INSERT INTO game_events (game_id, team_id, player_id, clock_seconds, event_type, points, sequence)
-     VALUES (@gameId, @teamId, @playerId, @clockSeconds, @eventType, @points, @sequence)`
-  );
+async function insertGameEvents(supabase, gameId, homeTeamId, awayTeamId, events) {
   for (const e of events) {
     const teamId = e.side === 'home' ? homeTeamId : awayTeamId;
-    const playerId = e.playerName ? upsertPlayer(db, e.playerName, teamId) : null;
-    insert.run({
-      gameId,
-      teamId,
-      playerId,
-      clockSeconds: e.clockSeconds,
-      eventType: e.type,
+    const playerId = e.playerName ? await upsertPlayer(supabase, e.playerName, teamId) : null;
+    const { error } = await supabase.from('game_events').insert({
+      game_id: gameId,
+      team_id: teamId,
+      player_id: playerId,
+      clock_seconds: e.clockSeconds,
+      event_type: e.type,
       points: e.points ?? null,
       sequence: e.sequence,
     });
+    if (error) throw new Error(`insert game event: ${error.message}`);
   }
 }
 
-function upsertTeam(db, name, leagueId) {
-  const existing = db.prepare(`SELECT id FROM teams WHERE name = ? AND league_id = ?`).get(name, leagueId);
+async function upsertTeam(supabase, name, leagueId) {
+  const { data: existing, error: findErr } = await supabase
+    .from('teams')
+    .select('id')
+    .eq('name', name)
+    .eq('league_id', leagueId)
+    .maybeSingle();
+  if (findErr) throw new Error(`find team: ${findErr.message}`);
   if (existing) return existing.id;
-  return db.prepare(`INSERT INTO teams (league_id, name) VALUES (?, ?)`).run(leagueId, name).lastInsertRowid;
+  const { data: created, error: insertErr } = await supabase
+    .from('teams')
+    .insert({ league_id: leagueId, name })
+    .select('id')
+    .single();
+  if (insertErr) throw new Error(`create team: ${insertErr.message}`);
+  return created.id;
 }
 
-function upsertPlayer(db, name, teamId) {
-  const existing = db.prepare(`SELECT id FROM players WHERE name = ? AND team_id = ?`).get(name, teamId);
+async function upsertPlayer(supabase, name, teamId) {
+  const { data: existing, error: findErr } = await supabase
+    .from('players')
+    .select('id')
+    .eq('name', name)
+    .eq('team_id', teamId)
+    .maybeSingle();
+  if (findErr) throw new Error(`find player: ${findErr.message}`);
   if (existing) return existing.id;
-  return db.prepare(`INSERT INTO players (team_id, name) VALUES (?, ?)`).run(teamId, name).lastInsertRowid;
+  const { data: created, error: insertErr } = await supabase
+    .from('players')
+    .insert({ team_id: teamId, name })
+    .select('id')
+    .single();
+  if (insertErr) throw new Error(`create player: ${insertErr.message}`);
+  return created.id;
 }
 
 module.exports = { registerIpcHandlers };

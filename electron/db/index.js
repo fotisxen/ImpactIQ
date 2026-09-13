@@ -2,8 +2,11 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { app } = require('electron');
 const Database = require('better-sqlite3');
-const { seedLeaguesAndTeams, ensureCurrentSeasons } = require('./seed');
 
+// Leagues/teams/seasons reference-data seeding now runs against Supabase
+// (electron/db/seed.js's functions take a Supabase client, not this local
+// db) — see main.js, which calls it once a Supabase session exists rather
+// than here at raw app boot, before any login has necessarily happened.
 function initDb() {
   const userDataDir = app.getPath('userData');
   const dbPath = path.join(userDataDir, 'boxscore.sqlite3');
@@ -15,8 +18,6 @@ function initDb() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
   db.exec(schema);
   migrate(db);
-  seedLeaguesAndTeams(db);
-  ensureCurrentSeasons(db);
 
   return db;
 }

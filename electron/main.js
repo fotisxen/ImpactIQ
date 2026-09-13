@@ -7,6 +7,8 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { registerIpcHandlers } = require('./ipc');
 const { initDb } = require('./db');
 const { retryPendingSyncs } = require('./services/dataSync');
+const { getSupabaseClient } = require('./services/supabaseClient');
+const { seedLeaguesAndTeams, ensureCurrentSeasons } = require('./db/seed');
 
 const DEEP_LINK_PROTOCOL = 'boxscore-analytics';
 
@@ -96,6 +98,21 @@ if (!gotLock) {
     createWindow();
     registerIpcHandlers(db, mainWindow);
     retryPendingSyncs(db).catch((err) => console.error('retryPendingSyncs failed:', err));
+
+    // Reference-data seeding now runs against Supabase — fire-and-forget at
+    // startup (mirrors retryPendingSyncs above). If no session exists yet
+    // (fresh install, not logged in), RLS silently blocks the writes and
+    // this just no-ops; it self-heals on the next launch after login,
+    // since leagues/teams only ever need seeding once, not every session.
+    (async () => {
+      try {
+        const supabase = getSupabaseClient();
+        await seedLeaguesAndTeams(supabase);
+        await ensureCurrentSeasons(supabase);
+      } catch (err) {
+        console.error('reference-data seeding failed (will retry next launch):', err);
+      }
+    })();
 
     const coldStartLink = extractDeepLink(process.argv);
     if (coldStartLink) mainWindow.webContents.once('did-finish-load', () => handleDeepLink(coldStartLink));

@@ -9,6 +9,11 @@
  * lowest Greek tiers are regionalized into groups in real life but are
  * flattened into one league each here since the schema doesn't model
  * divisions/groups.
+ *
+ * Batched against Supabase (a handful of bulk fetch/insert calls, not one
+ * round trip per league/team) — with local SQLite retired, a naive
+ * per-row check-then-insert port of the old synchronous version would mean
+ * hundreds of sequential network round trips on every app launch.
  */
 const LEAGUES = [
   {
@@ -283,34 +288,54 @@ const LEAGUES = [
 ];
 
 /**
- * Idempotent, additive: checks each league/team by name before inserting,
- * so it's safe to run on every app start. This is what makes seeding
- * self-healing for a DB that already had some hand-created leagues/teams
- * before this seed list existed — it fills in whatever's missing without
- * touching or duplicating anything the user already made.
+ * Idempotent, additive: fetches every existing league/team ONCE, diffs
+ * against the hardcoded list above in memory, then issues a handful of
+ * bulk inserts for whatever's missing — never a round trip per row. Safe
+ * to run on every app start; never touches or duplicates anything the
+ * user already made.
  */
-function seedLeaguesAndTeams(db) {
-  const findLeague = db.prepare(`SELECT id FROM leagues WHERE name = ?`);
-  const insertLeague = db.prepare(
-    `INSERT INTO leagues (name, country, tier, source) VALUES (?, ?, ?, 'public_api')`
-  );
-  const findTeam = db.prepare(`SELECT id FROM teams WHERE league_id = ? AND name = ?`);
-  const insertTeam = db.prepare(`INSERT INTO teams (league_id, name, is_my_team) VALUES (?, ?, 0)`);
+async function seedLeaguesAndTeams(supabase) {
+  const { data: existingLeagues, error: leagueErr } = await supabase.from('leagues').select('id, name');
+  if (leagueErr) throw new Error(`seed: fetch leagues: ${leagueErr.message}`);
 
-  const seedTx = db.transaction(() => {
-    for (const league of LEAGUES) {
-      const existingLeague = findLeague.get(league.name);
-      const leagueId = existingLeague
-        ? existingLeague.id
-        : insertLeague.run(league.name, league.country, league.tier || null).lastInsertRowid;
+  const leagueIdByName = new Map(existingLeagues.map((l) => [l.name, l.id]));
+  const missingLeagues = LEAGUES.filter((l) => !leagueIdByName.has(l.name)).map((l) => ({
+    name: l.name,
+    country: l.country,
+    tier: l.tier || null,
+    source: 'public_api',
+  }));
 
-      for (const teamName of league.teams) {
-        if (!findTeam.get(leagueId, teamName)) insertTeam.run(leagueId, teamName);
+  if (missingLeagues.length > 0) {
+    const { data: created, error: createErr } = await supabase.from('leagues').insert(missingLeagues).select('id, name');
+    if (createErr) throw new Error(`seed: insert leagues: ${createErr.message}`);
+    for (const l of created) leagueIdByName.set(l.name, l.id);
+  }
+
+  const allLeagueIds = LEAGUES.map((l) => leagueIdByName.get(l.name));
+  const { data: existingTeams, error: teamErr } = await supabase
+    .from('teams')
+    .select('id, name, league_id')
+    .in('league_id', allLeagueIds);
+  if (teamErr) throw new Error(`seed: fetch teams: ${teamErr.message}`);
+
+  const teamKey = (leagueId, name) => `${leagueId}::${name}`;
+  const existingTeamKeys = new Set(existingTeams.map((t) => teamKey(t.league_id, t.name)));
+
+  const missingTeams = [];
+  for (const league of LEAGUES) {
+    const leagueId = leagueIdByName.get(league.name);
+    for (const teamName of league.teams) {
+      if (!existingTeamKeys.has(teamKey(leagueId, teamName))) {
+        missingTeams.push({ league_id: leagueId, name: teamName, is_my_team: false });
       }
     }
-  });
+  }
 
-  seedTx();
+  if (missingTeams.length > 0) {
+    const { error: insertTeamsErr } = await supabase.from('teams').insert(missingTeams);
+    if (insertTeamsErr) throw new Error(`seed: insert teams: ${insertTeamsErr.message}`);
+  }
 }
 
 /**
@@ -331,21 +356,29 @@ function currentSeasonLabel(date = new Date()) {
  * currentSeasonLabel), additively — never removes or touches past
  * seasons. Runs on every app start, so as real time crosses into a new
  * season, the next launch adds it automatically alongside every earlier
- * one, for every league (seeded or user-created).
+ * one, for every league (seeded or user-created). Batched: one fetch of
+ * every league, one fetch of every existing "current label" season row,
+ * one bulk insert for whatever's missing.
  */
-function ensureCurrentSeasons(db) {
+async function ensureCurrentSeasons(supabase) {
   const label = currentSeasonLabel();
-  const leagues = db.prepare(`SELECT id FROM leagues`).all();
-  const findSeason = db.prepare(`SELECT id FROM seasons WHERE league_id = ? AND year = ?`);
-  const insertSeason = db.prepare(`INSERT INTO seasons (league_id, year) VALUES (?, ?)`);
 
-  const tx = db.transaction(() => {
-    for (const league of leagues) {
-      if (!findSeason.get(league.id, label)) insertSeason.run(league.id, label);
-    }
-  });
+  const { data: leagues, error: leagueErr } = await supabase.from('leagues').select('id');
+  if (leagueErr) throw new Error(`ensureCurrentSeasons: fetch leagues: ${leagueErr.message}`);
 
-  tx();
+  const { data: existingSeasons, error: seasonErr } = await supabase
+    .from('seasons')
+    .select('league_id')
+    .eq('year', label);
+  if (seasonErr) throw new Error(`ensureCurrentSeasons: fetch seasons: ${seasonErr.message}`);
+
+  const hasSeason = new Set(existingSeasons.map((s) => s.league_id));
+  const missing = leagues.filter((l) => !hasSeason.has(l.id)).map((l) => ({ league_id: l.id, year: label }));
+
+  if (missing.length > 0) {
+    const { error: insertErr } = await supabase.from('seasons').insert(missing);
+    if (insertErr) throw new Error(`ensureCurrentSeasons: insert seasons: ${insertErr.message}`);
+  }
 }
 
 module.exports = { seedLeaguesAndTeams, currentSeasonLabel, ensureCurrentSeasons };

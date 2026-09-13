@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/cor
 import { DatePipe } from '@angular/common';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ToastService } from '../../shared/services/toast.service';
-import type { AdminOrganizationRow, AdminSyncableTeam, Tier } from '../../core/models/box-score.model';
+import type { AdminOrganizationRow, AdminTeam, Tier } from '../../core/models/box-score.model';
 
 /**
  * Owner-only account provisioning — no Stripe checkout involved (see the
@@ -80,11 +80,10 @@ import type { AdminOrganizationRow, AdminSyncableTeam, Tier } from '../../core/m
             <span class="field-label">Default team (optional — sets their homepage view)</span>
             <select formControlName="defaultTeamId">
               <option value="">— None —</option>
-              @for (team of syncableTeams(); track team.remoteId) {
-                <option [value]="team.remoteId">{{ team.name }} ({{ team.league_name }})</option>
+              @for (team of allTeams(); track team.id) {
+                <option [value]="team.id">{{ team.name }} ({{ team.league_name }})</option>
               }
             </select>
-            <span class="hint">Only teams you've already uploaded at least one game for appear here.</span>
           </label>
 
           <button type="submit" class="btn btn-primary" [disabled]="form.invalid || creating()">
@@ -130,8 +129,8 @@ import type { AdminOrganizationRow, AdminSyncableTeam, Tier } from '../../core/m
                     <td>
                       <select [value]="org.defaultTeamId ?? ''" (change)="changeDefaultTeam(org, $event)">
                         <option value="">— None —</option>
-                        @for (team of syncableTeams(); track team.remoteId) {
-                          <option [value]="team.remoteId">{{ team.name }} ({{ team.league_name }})</option>
+                        @for (team of allTeams(); track team.id) {
+                          <option [value]="team.id">{{ team.name }} ({{ team.league_name }})</option>
                         }
                       </select>
                     </td>
@@ -221,7 +220,7 @@ export class AdminComponent {
   private readonly toast = inject(ToastService);
 
   protected readonly organizations = signal<AdminOrganizationRow[]>([]);
-  protected readonly syncableTeams = signal<AdminSyncableTeam[]>([]);
+  protected readonly allTeams = signal<AdminTeam[]>([]);
   protected readonly loadingOrgs = signal(false);
   protected readonly creating = signal(false);
   protected readonly createdCredentials = signal<{ email: string; password: string } | null>(null);
@@ -239,7 +238,7 @@ export class AdminComponent {
 
   constructor() {
     void this.loadOrganizations();
-    void this.loadSyncableTeams();
+    void this.loadAllTeams();
   }
 
   private async loadOrganizations(): Promise<void> {
@@ -253,9 +252,9 @@ export class AdminComponent {
     }
   }
 
-  private async loadSyncableTeams(): Promise<void> {
+  private async loadAllTeams(): Promise<void> {
     try {
-      this.syncableTeams.set(await window.boxscoreApi.adminListSyncableTeams());
+      this.allTeams.set(await window.boxscoreApi.adminListTeams());
     } catch (err) {
       this.toast.error(err instanceof Error ? err.message : 'Failed to load teams.');
     }
