@@ -2,6 +2,7 @@
   "name": "boxscore-analytics",
   "version": "0.1.0",
   "description": "Desktop app: photo of a box score in, basic + advanced basketball stats out, for players/teams/leagues.",
+  "author": "Fotis",
   "main": "electron/main.js",
   "scripts": {
     "renderer:start": "npm --prefix renderer start",
@@ -29,7 +30,7 @@
   },
   "build": {
     "appId": "gr.opensite.boxscore-analytics",
-    "productName": "Box Score Analytics",
+    "productName": "Impact IQ",
     "icon": "build/icon.png",
     "files": [
       "electron/**/*",
@@ -37,6 +38,11 @@
     ],
     "directories": {
       "output": "dist-electron"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "fotisxen",
+      "repo": "ImpactIQ"
     }
   }
 }
