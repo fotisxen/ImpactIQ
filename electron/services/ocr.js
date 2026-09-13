@@ -49,10 +49,9 @@ Rules:
 async function extractBoxScore(base64Image, mediaType = 'image/jpeg') {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    // No API key configured β€” return a canned example so the rest of the
-    // app (review table, save, stats, export) is fully demoable without
-    // wiring up billing. Remove this branch once ANTHROPIC_API_KEY is set.
-    return demoBoxScore();
+    // No fabricated fallback here on purpose — a coach could save a fake
+    // box score believing it came from their real photo.
+    throw new Error('Photo upload (OCR) is not configured on this install — contact your administrator.');
   }
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -106,37 +105,6 @@ async function extractBoxScore(base64Image, mediaType = 'image/jpeg') {
   } catch (err) {
     throw new Error(`Failed to parse OCR response as JSON: ${err.message}\nRaw: ${cleaned}`);
   }
-}
-
-/**
- * Demo data returned when ANTHROPIC_API_KEY isn't set, so the upload ->
- * review -> save -> stats -> export flow can be tried end to end without
- * any API billing configured. A small delay simulates the real call.
- */
-function demoBoxScore() {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        team: 'Iraklis',
-        opponent: 'PAOK',
-        date: new Date().toISOString().slice(0, 10),
-        players: [
-          { name: 'G. Papadopoulos', min: 32, pts: 24, fgm: 9, fga: 15, tpm: 2, tpa: 5, ftm: 4, fta: 4, oreb: 1, dreb: 5, ast: 6, stl: 2, blk: 0, tov: 3, pf: 2, pfd: 5, plus_minus: 12, srj: 1 },
-          { name: 'N. Antoniou', min: 28, pts: 14, fgm: 5, fga: 11, tpm: 1, tpa: 4, ftm: 3, fta: 3, oreb: 2, dreb: 4, ast: 2, stl: 1, blk: 1, tov: 2, pf: 3, pfd: 3, plus_minus: 6, srj: 1 },
-          { name: 'K. Ioannidis', min: 24, pts: 9, fgm: 4, fga: 8, tpm: 0, tpa: 1, ftm: 1, fta: 2, oreb: 3, dreb: 6, ast: 1, stl: 0, blk: 2, tov: 1, pf: 4, pfd: 2, plus_minus: 4, srj: 1 },
-          { name: 'D. Michailidis', min: 19, pts: 6, fgm: 2, fga: 6, tpm: 2, tpa: 4, ftm: 0, fta: 0, oreb: 0, dreb: 2, ast: 3, stl: 1, blk: 0, tov: 1, pf: 1, pfd: 1, plus_minus: -2, srj: 1 },
-          { name: 'A. Stavrou', min: 16, pts: 4, fgm: 2, fga: 3, tpm: 0, tpa: 0, ftm: 0, fta: 0, oreb: 1, dreb: 1, ast: 1, stl: 0, blk: 0, tov: 0, pf: 2, pfd: 1, plus_minus: -4, srj: 1 },
-        ],
-        opponentPlayers: [
-          { name: 'V. Georgiou', min: 30, pts: 19, fgm: 7, fga: 14, tpm: 3, tpa: 6, ftm: 2, fta: 2, oreb: 0, dreb: 4, ast: 4, stl: 1, blk: 0, tov: 2, pf: 3, pfd: 4, plus_minus: -10, srj: 1 },
-          { name: 'T. Karagiannis', min: 27, pts: 12, fgm: 5, fga: 10, tpm: 0, tpa: 2, ftm: 2, fta: 3, oreb: 3, dreb: 5, ast: 1, stl: 2, blk: 1, tov: 1, pf: 2, pfd: 2, plus_minus: -6, srj: 1 },
-          { name: 'M. Dimitriou', min: 22, pts: 8, fgm: 3, fga: 7, tpm: 1, tpa: 3, ftm: 1, fta: 2, oreb: 1, dreb: 3, ast: 2, stl: 0, blk: 0, tov: 2, pf: 4, pfd: 1, plus_minus: -4, srj: 1 },
-          { name: 'S. Vasileiou', min: 18, pts: 7, fgm: 3, fga: 5, tpm: 0, tpa: 1, ftm: 1, fta: 2, oreb: 2, dreb: 2, ast: 1, stl: 1, blk: 1, tov: 0, pf: 1, pfd: 1, plus_minus: 2, srj: 1 },
-          { name: 'P. Nikolaou', min: 15, pts: 3, fgm: 1, fga: 4, tpm: 1, tpa: 2, ftm: 0, fta: 0, oreb: 0, dreb: 1, ast: 2, stl: 0, blk: 0, tov: 1, pf: 2, pfd: 0, plus_minus: -2, srj: 1 },
-        ],
-      });
-    }, 900);
-  });
 }
 
 module.exports = { extractBoxScore };
