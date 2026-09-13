@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "../impact-iq-mobile", "run", "web", "--", "--port", "8082"],
       "port": 8082
+    },
+    {
+      "name": "impactiq-website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "C:\\Users\\fotis\\Projects\\impactiq-website", "run", "dev"],
+      "port": 3000
     }
   ]
 }
