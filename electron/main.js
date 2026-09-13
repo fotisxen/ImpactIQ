@@ -5,8 +5,6 @@ const fs = require('node:fs');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { registerIpcHandlers } = require('./ipc');
-const { initDb } = require('./db');
-const { retryPendingSyncs } = require('./services/dataSync');
 const { getSupabaseClient } = require('./services/supabaseClient');
 const { seedLeaguesAndTeams, ensureCurrentSeasons } = require('./db/seed');
 
@@ -94,10 +92,8 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
-    const db = initDb();
     createWindow();
-    registerIpcHandlers(db, mainWindow);
-    retryPendingSyncs(db).catch((err) => console.error('retryPendingSyncs failed:', err));
+    registerIpcHandlers(mainWindow);
 
     // Reference-data seeding now runs against Supabase — fire-and-forget at
     // startup (mirrors retryPendingSyncs above). If no session exists yet

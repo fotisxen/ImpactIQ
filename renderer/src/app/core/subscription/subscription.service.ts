@@ -89,13 +89,6 @@ export class SubscriptionService {
       const [sub, profile] = await Promise.all([window.boxscoreApi.getSubscriptionTier(), window.boxscoreApi.getProfile()]);
       this.subscription.set(sub);
       this.organizationId.set(profile?.organization_id ?? null);
-      if (sub.source !== 'guest' && (sub.status === 'active' || sub.status === 'trialing')) {
-        // Fire-and-forget mirror sync — pulls whatever this account's
-        // tier/org currently entitles it to see into the local cache. Not
-        // awaited: it shouldn't block the UI from showing what's already
-        // there, and failures here are non-fatal (next refresh retries).
-        void window.boxscoreApi.pullCloudData().catch(() => {});
-      }
     } catch (err) {
       this.toast.error(err instanceof Error ? err.message : 'Failed to load subscription status.');
     } finally {

@@ -894,7 +894,6 @@ export interface BoxscoreApi {
   checkout(params: { tier: Tier }): Promise<void>;
   openBillingPortal(): Promise<void>;
   onCheckoutReturn(callback: (status: string | null) => void): () => void;
-  pullCloudData(): Promise<{ pulled: number }>;
 
   adminCreateAccount(params: CreateAccountParams): Promise<{ email: string; password: string; organizationId: string }>;
   adminListOrganizations(): Promise<AdminOrganizationRow[]>;

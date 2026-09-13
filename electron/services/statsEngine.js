@@ -1,7 +1,8 @@
 /**
  * Pure, dependency-free stat calculations. Input is always a "box score row"
- * shape (see db/schema.sql box_scores columns), whether that row is a single
- * player-game, a summed team-game, or a summed/averaged league line.
+ * shape (see supabase/migrations/0002_box_score_domain.sql box_scores columns),
+ * whether that row is a single player-game, a summed team-game, or a
+ * summed/averaged league line.
  *
  * Kept framework-agnostic on purpose: no Electron, no DB, no Angular. This
  * file (or a straight TS port of it) can be shared into the renderer too.
@@ -241,7 +242,12 @@ function sumRows(rows) {
   // and silently producing NaN instead of an honest 0.
   const zeroed = Object.fromEntries(numericKeys.map((k) => [k, 0]));
   return rows.reduce((acc, row) => {
-    for (const key of numericKeys) acc[key] += row[key] || 0;
+    // Postgres `numeric` columns (e.g. box_scores.min) come back from
+    // PostgREST as strings when they don't fit safely in a JS number —
+    // `Number(...)` coerces before summing so this can't silently become
+    // string concatenation (`0 + "12.5"` === "012.5") once rows are read
+    // from Supabase instead of better-sqlite3 (which already returns numbers).
+    for (const key of numericKeys) acc[key] += Number(row[key]) || 0;
     return acc;
   }, zeroed);
 }

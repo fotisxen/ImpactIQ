@@ -102,10 +102,6 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   checkout: (params) => ipcRenderer.invoke('subscription:checkout', params),
   openBillingPortal: () => ipcRenderer.invoke('subscription:open-portal'),
 
-  // Pulls whatever games this account's tier/org currently entitles it to
-  // see (RLS-filtered) into the local cache — see services/dataSync.js.
-  pullCloudData: () => ipcRenderer.invoke('sync:pull-cloud-data'),
-
   // Owner-only provisioning (no Stripe) — see services/admin.js. Every
   // call is also re-checked server-side (requirePlatformAdmin), so hiding
   // the Admin page in the UI isn't the only thing stopping a non-admin.
