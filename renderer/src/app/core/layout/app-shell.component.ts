@@ -20,14 +20,23 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
         </div>
         <nav>
           <a routerLink="/home" routerLinkActive="active">Home</a>
-          <a routerLink="/upload" routerLinkActive="active">Upload Photo</a>
-          <a routerLink="/import-pbp" routerLinkActive="active">Import Play-by-Play</a>
-          <a routerLink="/manual-entry" routerLinkActive="active">Manual Entry</a>
+          @if (sub.canUploadPhoto() !== false) {
+            <a routerLink="/upload" routerLinkActive="active">Upload Photo</a>
+          }
+          @if (sub.canManualEntry() !== false) {
+            <a routerLink="/import-pbp" routerLinkActive="active">Import Play-by-Play</a>
+            <a routerLink="/manual-entry" routerLinkActive="active">Manual Entry</a>
+          }
           <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
           <a routerLink="/game-insights" routerLinkActive="active">Insights</a>
           <a routerLink="/four-factors" routerLinkActive="active">Four Factors</a>
           <a routerLink="/compare" routerLinkActive="active">Compare</a>
+          <a routerLink="/scouting" routerLinkActive="active">Scouting</a>
+          <a routerLink="/draw" routerLinkActive="active">Draw</a>
           <a routerLink="/account" routerLinkActive="active">Account</a>
+          @if (sub.isPlatformAdmin()) {
+            <a routerLink="/admin" routerLinkActive="active">Admin</a>
+          }
         </nav>
       </aside>
 
@@ -158,15 +167,15 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
 export class AppShellComponent {
   protected readonly auth = inject(AuthService);
   protected readonly theme = inject(ThemeService);
-  private readonly subscription = inject(SubscriptionService);
+  protected readonly sub = inject(SubscriptionService);
   private readonly router = inject(Router);
 
   constructor() {
-    this.subscription.init();
+    this.sub.init();
   }
 
   logout(): void {
-    this.subscription.reset();
+    this.sub.reset();
     void this.auth.logout();
     void this.router.navigate(['/login']);
   }

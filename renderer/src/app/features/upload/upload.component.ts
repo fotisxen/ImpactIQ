@@ -23,48 +23,25 @@ type RosterField = 'players' | 'opponentPlayers';
   imports: [BoxScoreTableComponent, GameContextPickerComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (sub.hasUploadAccess() === false) {
+    @if (sub.canUploadPhoto() === false) {
       <section class="upload-page">
         <div class="card upload-gate">
-          <h2>Upload a Photo needs its own subscription</h2>
+          <h2>Upload a Photo isn't included on your current plan</h2>
           <p>
-            Photo uploads use the Claude AI API to read the box score, which costs us per upload — that's
-            why it's billed separately from your base subscription.
-            <a routerLink="/manual-entry">You can still enter stats manually without it.</a>
+            Upgrade to the Photo plan from <a routerLink="/account">Account settings</a> to use AI photo upload,
+            or <a routerLink="/manual-entry">enter stats manually</a>.
           </p>
-          <div class="plan-grid">
-            @for (plan of sub.uploadPlans(); track plan.id) {
-              <div class="plan-card">
-                <h4>{{ plan.name }}</h4>
-                <p class="price">{{ plan.price_cents / 100 }}€ <span class="hint">/ month</span></p>
-                <p class="hint">{{ plan.monthly_upload_limit }} uploads / month</p>
-                <button class="btn btn-primary btn-sm" (click)="sub.checkout({ kind: 'upload', planId: plan.id })">
-                  Subscribe
-                </button>
-              </div>
-            }
-          </div>
           <p class="hint">
-            Already paid and still seeing this? It usually updates on its own within a few seconds — or check
+            Already upgraded and still seeing this? It usually updates on its own within a few seconds — or check
             right now:
           </p>
-          <button class="btn btn-secondary btn-sm" (click)="sub.refreshNow()">I've already paid — check again</button>
+          <button class="btn btn-secondary btn-sm" (click)="sub.refreshNow()">I've already upgraded — check again</button>
         </div>
       </section>
-    } @else if (sub.hasUploadAccess() === true) {
+    } @else if (sub.canUploadPhoto() === true) {
     <section class="upload-page">
       <header class="page-header">
         <h2>Upload a box score photo</h2>
-        @if (sub.uploadStatus(); as up) {
-          @if (up.remaining !== undefined && up.limit !== undefined) {
-            <p class="hint quota-hint" [class.quota-low]="up.remaining <= 2">
-              {{ up.remaining }} of {{ up.limit }} photo uploads left this period
-              @if (up.planName) {
-                <span>· {{ up.planName }}</span>
-              }
-            </p>
-          }
-        }
         <p class="hint"><a routerLink="/manual-entry">Prefer to enter stats manually instead?</a></p>
       </header>
 
@@ -187,36 +164,11 @@ type RosterField = 'players' | 'opponentPlayers';
       font-size: 1.4rem;
       margin-bottom: var(--space-1);
     }
-    .quota-hint {
-      color: var(--text-muted);
-    }
-    .quota-hint.quota-low {
-      color: var(--negative);
-      font-weight: 600;
-    }
-
     .upload-gate {
       display: flex;
       flex-direction: column;
       gap: var(--space-4);
       max-width: 640px;
-    }
-    .upload-gate .plan-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      gap: var(--space-3);
-    }
-    .upload-gate .plan-card {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      padding: var(--space-3);
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-2);
-    }
-    .upload-gate .price {
-      font-weight: 700;
-      font-size: 1.1rem;
     }
 
     .second-photo-card {
@@ -475,6 +427,7 @@ export class UploadComponent {
       date: boxScore.date,
       players: boxScore.players,
       opponentPlayers: boxScore.opponentPlayers,
+      source: 'photo',
     });
 
     this.toast.success(`Saved ${teamName} vs ${opponentName}.`);

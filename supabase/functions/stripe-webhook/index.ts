@@ -1,9 +1,9 @@
 // Receives Stripe's subscription lifecycle events and is the ONLY writer
 // of subscription state in Supabase — nothing else sets status, dates, or
-// Stripe ids on `subscriptions` / `upload_subscriptions` (see the trigger
-// guards in supabase/migrations/0003_subscriptions.sql, which reject any
-// client update to those columns and let this function's service_role
-// writes through).
+// Stripe ids on `subscriptions` (see the trigger guard in
+// supabase/migrations/0003_subscriptions.sql, which rejects any client
+// update to those columns and lets this function's service_role writes
+// through).
 import type Stripe from 'npm:stripe@17';
 import { getStripeClient } from '../_shared/stripe.ts';
 import { getAdminClient } from '../_shared/supabaseClients.ts';
@@ -28,10 +28,9 @@ async function upsertFromSubscription(admin: ReturnType<typeof getAdminClient>, 
   const meta = sub.metadata as Record<string, string>;
   if (meta.app !== 'boxscore') return; // Not one of ours — ignore.
 
-  const interval = sub.items.data[0]?.price.recurring?.interval === 'year' ? 'year' : 'month';
   const common = {
     status: mapStatus(sub.status),
-    billing_interval: interval,
+    billing_interval: 'year' as const, // every tier is annual-only now
     current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
     current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
     cancel_at_period_end: sub.cancel_at_period_end,
@@ -39,44 +38,13 @@ async function upsertFromSubscription(admin: ReturnType<typeof getAdminClient>, 
     stripe_subscription_id: sub.id,
   };
 
-  if (meta.kind === 'upload') {
-    const { error } = await admin
-      .from('upload_subscriptions')
-      .upsert(
-        { user_id: meta.user_id, plan_id: meta.plan_id, ...common },
-        { onConflict: 'user_id' }
-      );
-    if (error) throw new Error(`upload_subscriptions upsert: ${error.message}`);
-    return;
-  }
-
-  if (meta.kind === 'base' && meta.tier === 'individual') {
-    const { error } = await admin
-      .from('subscriptions')
-      .upsert(
-        { owner_type: 'user', user_id: meta.user_id, organization_id: null, tier: 'individual', ...common },
-        { onConflict: 'user_id' }
-      );
-    if (error) throw new Error(`subscriptions (individual) upsert: ${error.message}`);
-    return;
-  }
-
-  if (meta.kind === 'base' && meta.tier === 'team') {
-    const { error } = await admin
-      .from('subscriptions')
-      .upsert(
-        {
-          owner_type: 'organization',
-          organization_id: meta.organization_id,
-          user_id: null,
-          tier: 'team',
-          seat_count: Number(meta.seat_count ?? 1),
-          ...common,
-        },
-        { onConflict: 'organization_id' }
-      );
-    if (error) throw new Error(`subscriptions (team) upsert: ${error.message}`);
-  }
+  const { error } = await admin
+    .from('subscriptions')
+    .upsert(
+      { owner_type: 'organization', organization_id: meta.organization_id, user_id: null, tier: meta.tier, ...common },
+      { onConflict: 'organization_id' }
+    );
+  if (error) throw new Error(`subscriptions upsert: ${error.message}`);
 }
 
 Deno.serve(async (req) => {

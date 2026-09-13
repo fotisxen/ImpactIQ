@@ -4,3 +4,11 @@ renderer/dist/
 .env
 *.sqlite3
 *.sqlite3-*
+__pycache__/
+supabase/.temp/
+
+# Scraper output — regenerable from the scripts in data-import/ against
+# their live sources; not source code, not needed to run the app.
+data-import/out*/
+data-import/*.csv
+data-import/*.json

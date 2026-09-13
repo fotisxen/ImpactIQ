@@ -221,10 +221,12 @@ async function parsePlayByPlay(buffer) {
     }
     if (/^made a defensive rebound$/i.test(action)) {
       row.dreb += 1;
+      pushEvent(team, displayName, atSeconds, 'reb_def');
       return;
     }
     if (/^made an? offensive rebound$/i.test(action)) {
       row.oreb += 1;
+      pushEvent(team, displayName, atSeconds, 'reb_off');
       return;
     }
     if (/^made an assist$/i.test(action)) {

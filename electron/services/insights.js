@@ -253,7 +253,7 @@ function buildTeamProfileInsights(subjectName, subjectPerGame, leaguePerGame) {
   const specs = [
     { key: 'pts', label: 'scoring', actual: subjectPerGame.pts ?? 0, base: leaguePerGame.pts ?? 0, goodWhenHigh: true },
     { key: 'reb', label: 'rebounding', actual: subjectReb, base: leagueReb, goodWhenHigh: true },
-    { key: 'ast', label: 'ball movement', actual: subjectPerGame.ast ?? 0, base: leaguePerGame.ast ?? 0, goodWhenHigh: true },
+    { key: 'ast', label: 'assists', actual: subjectPerGame.ast ?? 0, base: leaguePerGame.ast ?? 0, goodWhenHigh: true },
     { key: 'tov', label: 'turnovers', actual: subjectPerGame.tov ?? 0, base: leaguePerGame.tov ?? 0, goodWhenHigh: false },
     { key: 'stl', label: 'steals', actual: subjectPerGame.stl ?? 0, base: leaguePerGame.stl ?? 0, goodWhenHigh: true },
     { key: 'blk', label: 'shot blocking', actual: subjectPerGame.blk ?? 0, base: leaguePerGame.blk ?? 0, goodWhenHigh: true },

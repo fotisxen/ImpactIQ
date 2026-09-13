@@ -289,6 +289,7 @@ export class ImportPbpComponent {
       date: boxScore.date,
       players: boxScore.players,
       opponentPlayers: boxScore.opponentPlayers,
+      source: 'manual',
       events: boxScore.events,
     });
 

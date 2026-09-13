@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 4200
+    },
+    {
+      "name": "impact-iq-mobile",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "../impact-iq-mobile", "run", "web", "--", "--port", "8082"],
+      "port": 8082
     }
   ]
 }

@@ -5,6 +5,8 @@ const { extractBoxScore } = require('./services/ocr');
 const { parsePlayByPlay } = require('./services/playByPlay');
 const { buildStints, computeRapm, confidenceLabel } = require('./services/rapm');
 const { computeAssistedFgPct, computeLiveBallShare, computeLineupCombos } = require('./services/fourFactors');
+const { reconstructGamePossessions, possessionStatsForTeam } = require('./services/possessions');
+const { buildZoneChart } = require('./services/shotZones');
 const {
   sumRows,
   perGame,
@@ -16,6 +18,8 @@ const {
   pie: computePIE,
   doeStatLine,
   estimatePossessions,
+  pacePerGame,
+  pythagoreanWinPct,
 } = require('./services/statsEngine');
 const {
   buildTeamInsights,
@@ -37,26 +41,35 @@ const {
   revokeInvite,
 } = require('./services/organizations');
 const {
-  getBaseSubscription,
-  cancelBaseSubscription,
-  getUploadStatus,
-  cancelUploadSubscription,
-  listUploadPlans,
-  assertUploadQuotaAvailable,
-  recordPhotoUpload,
+  getTier,
+  cancelSubscription,
   getProfile,
   updateProfile,
   changePassword,
   createCheckoutSession,
   createPortalSession,
 } = require('./services/subscriptions');
+const { pushGameToCloud, pullCloudGames, retryPendingSyncs } = require('./services/dataSync');
+const {
+  createAccount: adminCreateAccount,
+  listOrganizations: adminListOrganizations,
+  updateOrganization: adminUpdateOrganization,
+} = require('./services/admin');
 const {
   buildWorkbook,
   buildAdvancedReportWorkbook,
   renderReportToPdf,
   buildGameBoxScoreWorkbook,
   renderGameBoxScoreToPdf,
+  renderScoutingReportToPdf,
 } = require('./services/export');
+const {
+  publishScoutingReport,
+  getCurrentPublishedReport,
+  listReportViewers,
+  listPlayers,
+  createPlayerAccount,
+} = require('./services/scoutingReportDistribution');
 
 function registerIpcHandlers(db, mainWindow) {
   ipcMain.handle('ocr:extract-box-score', async (_event, base64Image, mediaType) => {
@@ -68,14 +81,16 @@ function registerIpcHandlers(db, mainWindow) {
       return JSON.parse(cached.result_json);
     }
 
-    await assertUploadQuotaAvailable();
+    const tier = await getTier();
+    if (!tier.canUploadPhoto) {
+      throw new Error('Photo upload (OCR) is included on the Photo plan. Upgrade from Account settings.');
+    }
     const result = await extractBoxScore(base64Image, mediaType);
     db.prepare(`INSERT INTO ocr_cache (image_hash, result_json, created_at) VALUES (?, ?, ?)`).run(
       imageHash,
       JSON.stringify(result),
       new Date().toISOString()
     );
-    await recordPhotoUpload();
     return result;
   });
 
@@ -102,10 +117,8 @@ function registerIpcHandlers(db, mainWindow) {
   ipcMain.handle('account:update-profile', (_event, profile) => updateProfile(profile));
   ipcMain.handle('account:change-password', (_event, newPassword) => changePassword(newPassword));
 
-  ipcMain.handle('subscription:get-base', () => getBaseSubscription());
-  ipcMain.handle('subscription:cancel-base', () => cancelBaseSubscription());
-  ipcMain.handle('subscription:get-upload-status', () => getUploadStatus());
-  ipcMain.handle('subscription:cancel-upload', () => cancelUploadSubscription());
+  ipcMain.handle('subscription:get-tier', () => getTier());
+  ipcMain.handle('subscription:cancel', () => cancelSubscription());
 
   ipcMain.handle('subscription:checkout', async (_event, params) => {
     const url = await createCheckoutSession(params);
@@ -115,7 +128,29 @@ function registerIpcHandlers(db, mainWindow) {
     const url = await createPortalSession();
     await shell.openExternal(url);
   });
-  ipcMain.handle('subscription:list-upload-plans', () => listUploadPlans());
+
+  ipcMain.handle('sync:pull-cloud-data', () => pullCloudGames(db));
+
+  ipcMain.handle('admin:create-account', (_event, params) => adminCreateAccount(params));
+  ipcMain.handle('admin:list-organizations', () => adminListOrganizations());
+  ipcMain.handle('admin:update-organization', (_event, params) => adminUpdateOrganization(params));
+
+  // organizations.default_team_id is a Supabase-side FK, so the "default
+  // team" picker can only offer teams this install has actually pushed to
+  // the cloud (i.e. already have a row in sync_map) — a local team the
+  // admin never uploaded a game for has no remote id to point the column
+  // at yet. Local-only query, no Supabase round trip.
+  ipcMain.handle('admin:list-syncable-teams', () =>
+    db
+      .prepare(
+        `SELECT t.id AS localId, t.name, l.name AS league_name, sm.remote_id AS remoteId
+         FROM teams t
+         JOIN leagues l ON l.id = t.league_id
+         JOIN sync_map sm ON sm.entity_type = 'team' AND sm.local_id = t.id
+         ORDER BY t.name`
+      )
+      .all()
+  );
 
   ipcMain.handle('export:excel', async (_event, { payload, suggestedName }) => {
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
@@ -229,6 +264,80 @@ function registerIpcHandlers(db, mainWindow) {
     return { saved: false };
   });
 
+  ipcMain.handle('export:scouting-report-pdf', async (_event, { ourTeamId, opponentTeamId, seasonId, gameDate }) => {
+    const report = computeScoutingReport(db, ourTeamId, opponentTeamId, seasonId, gameDate);
+    if (!report) return { saved: false };
+    const existing = db
+      .prepare(`SELECT * FROM scouting_reports WHERE our_team_id = ? AND opponent_team_id = ? AND season_id = ? AND game_date = ?`)
+      .get(ourTeamId, opponentTeamId, seasonId, gameDate);
+    const keysToGame = existing ? JSON.parse(existing.keys_to_game) : [];
+    const playerNotes = existing
+      ? db
+          .prepare(`SELECT player_id AS playerId, notes FROM scouting_report_player_notes WHERE report_id = ?`)
+          .all(existing.id)
+          .map((r) => ({ ...r, notes: JSON.parse(r.notes) }))
+      : [];
+
+    const suggestedBase = `${report.opponentTeamName}-scouting-report-${report.gameDate}`.replace(/[^\w .-]/g, '');
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export scouting report',
+      defaultPath: `${suggestedBase}.pdf`,
+      filters: [{ name: 'PDF document', extensions: ['pdf'] }],
+    });
+    if (canceled || !filePath) return { saved: false };
+
+    const teamShots = db
+      .prepare(`SELECT x, y, made, value FROM shot_events WHERE team_id = ? AND season_id = ?`)
+      .all(report.opponentTeamId, report.seasonId);
+    const playerShotsByPlayerId = new Map();
+    for (const p of report.roster) {
+      playerShotsByPlayerId.set(
+        p.playerId,
+        db.prepare(`SELECT x, y, made, value FROM shot_events WHERE player_id = ? AND season_id = ?`).all(p.playerId, report.seasonId)
+      );
+    }
+
+    const buffer = await renderScoutingReportToPdf(report, keysToGame, playerNotes, teamShots, playerShotsByPlayerId);
+    await fs.writeFile(filePath, buffer);
+    return { saved: true, filePath };
+  });
+
+  /** Same PDF as export:scouting-report-pdf, but uploaded to the club's Storage + recorded as the current report instead of saved locally. */
+  ipcMain.handle('publish:scouting-report', async (_event, { ourTeamId, opponentTeamId, seasonId, gameDate }) => {
+    const report = computeScoutingReport(db, ourTeamId, opponentTeamId, seasonId, gameDate);
+    if (!report) return { published: false };
+    const existing = db
+      .prepare(`SELECT * FROM scouting_reports WHERE our_team_id = ? AND opponent_team_id = ? AND season_id = ? AND game_date = ?`)
+      .get(ourTeamId, opponentTeamId, seasonId, gameDate);
+    const keysToGame = existing ? JSON.parse(existing.keys_to_game) : [];
+    const playerNotes = existing
+      ? db
+          .prepare(`SELECT player_id AS playerId, notes FROM scouting_report_player_notes WHERE report_id = ?`)
+          .all(existing.id)
+          .map((r) => ({ ...r, notes: JSON.parse(r.notes) }))
+      : [];
+
+    const teamShots = db
+      .prepare(`SELECT x, y, made, value FROM shot_events WHERE team_id = ? AND season_id = ?`)
+      .all(report.opponentTeamId, report.seasonId);
+    const playerShotsByPlayerId = new Map();
+    for (const p of report.roster) {
+      playerShotsByPlayerId.set(
+        p.playerId,
+        db.prepare(`SELECT x, y, made, value FROM shot_events WHERE player_id = ? AND season_id = ?`).all(p.playerId, report.seasonId)
+      );
+    }
+
+    const buffer = await renderScoutingReportToPdf(report, keysToGame, playerNotes, teamShots, playerShotsByPlayerId);
+    const published = await publishScoutingReport({ pdfBuffer: buffer, opponentName: report.opponentTeamName, gameDate: report.gameDate });
+    return { published: true, ...published };
+  });
+
+  ipcMain.handle('cloud:get-current-published-report', () => getCurrentPublishedReport());
+  ipcMain.handle('cloud:list-report-viewers', (_event, reportId) => listReportViewers(reportId));
+  ipcMain.handle('cloud:list-players', () => listPlayers());
+  ipcMain.handle('cloud:create-player-account', (_event, params) => createPlayerAccount(params));
+
   ipcMain.handle('db:get-team-four-factors-report', (_event, teamId, seasonId) =>
     computeTeamFourFactorsReport(db, teamId, seasonId)
   );
@@ -238,7 +347,121 @@ function registerIpcHandlers(db, mainWindow) {
     return { saved: true };
   });
 
-  ipcMain.handle('db:save-game', (_event, game) => {
+  ipcMain.handle('db:update-player-depth-rank', (_event, playerId, depthRank) => {
+    db.prepare(`UPDATE players SET depth_rank = ? WHERE id = ?`).run(depthRank ?? null, playerId);
+    return { saved: true };
+  });
+
+  ipcMain.handle('db:update-player-height', (_event, playerId, height) => {
+    db.prepare(`UPDATE players SET height = ? WHERE id = ?`).run(height || null, playerId);
+    return { saved: true };
+  });
+
+  ipcMain.handle('db:update-player-hidden', (_event, playerId, hidden) => {
+    db.prepare(`UPDATE players SET hidden = ? WHERE id = ?`).run(hidden ? 1 : 0, playerId);
+    return { saved: true };
+  });
+
+  ipcMain.handle('db:get-scouting-report', (_event, ourTeamId, opponentTeamId, seasonId, gameDate) =>
+    computeScoutingReport(db, ourTeamId, opponentTeamId, seasonId, gameDate)
+  );
+
+  /** Finds or creates the persisted (editable) row for one matchup — keys-to-game bullets live here, per-player notes/photos in scouting_report_player_notes. */
+  ipcMain.handle('db:get-or-create-scouting-report-record', (_event, { ourTeamId, opponentTeamId, seasonId, gameDate }) => {
+    const existing = db
+      .prepare(`SELECT * FROM scouting_reports WHERE our_team_id = ? AND opponent_team_id = ? AND season_id = ? AND game_date = ?`)
+      .get(ourTeamId, opponentTeamId, seasonId, gameDate);
+    if (existing) return { ...existing, keysToGame: JSON.parse(existing.keys_to_game) };
+    const id = db
+      .prepare(`INSERT INTO scouting_reports (our_team_id, opponent_team_id, season_id, game_date, keys_to_game) VALUES (?, ?, ?, ?, '[]')`)
+      .run(ourTeamId, opponentTeamId, seasonId, gameDate).lastInsertRowid;
+    return { id, our_team_id: ourTeamId, opponent_team_id: opponentTeamId, season_id: seasonId, game_date: gameDate, keysToGame: [] };
+  });
+
+  ipcMain.handle('db:save-scouting-report-keys', (_event, reportId, keys) => {
+    db.prepare(`UPDATE scouting_reports SET keys_to_game = ? WHERE id = ?`).run(JSON.stringify(keys), reportId);
+    return { saved: true };
+  });
+
+  ipcMain.handle('db:get-scouting-report-player-notes', (_event, reportId) =>
+    db
+      .prepare(`SELECT player_id AS playerId, notes, photo_path AS photoPath FROM scouting_report_player_notes WHERE report_id = ?`)
+      .all(reportId)
+      .map((r) => ({ ...r, notes: JSON.parse(r.notes) }))
+  );
+
+  ipcMain.handle('db:save-scouting-report-player-notes', (_event, reportId, playerId, notes) => {
+    const existing = db
+      .prepare(`SELECT id FROM scouting_report_player_notes WHERE report_id = ? AND player_id = ?`)
+      .get(reportId, playerId);
+    if (existing) {
+      db.prepare(`UPDATE scouting_report_player_notes SET notes = ? WHERE id = ?`).run(JSON.stringify(notes), existing.id);
+    } else {
+      db.prepare(`INSERT INTO scouting_report_player_notes (report_id, player_id, notes) VALUES (?, ?, ?)`).run(
+        reportId,
+        playerId,
+        JSON.stringify(notes)
+      );
+    }
+    return { saved: true };
+  });
+
+  /** `photoDataUrl` is a data: URL from the renderer's file picker, or null to clear it — stored as-is despite the column's name. */
+  ipcMain.handle('db:save-scouting-report-player-photo', (_event, reportId, playerId, photoDataUrl) => {
+    const existing = db
+      .prepare(`SELECT id FROM scouting_report_player_notes WHERE report_id = ? AND player_id = ?`)
+      .get(reportId, playerId);
+    if (existing) {
+      db.prepare(`UPDATE scouting_report_player_notes SET photo_path = ? WHERE id = ?`).run(photoDataUrl, existing.id);
+    } else {
+      db.prepare(`INSERT INTO scouting_report_player_notes (report_id, player_id, notes, photo_path) VALUES (?, ?, '[]', ?)`).run(
+        reportId,
+        playerId,
+        photoDataUrl
+      );
+    }
+    return { saved: true };
+  });
+
+  /** The Draw screen's playbook — one row per saved play, `data` is a JSON blob of court frames. */
+  ipcMain.handle('db:list-plays', (_event, teamId) =>
+    db
+      .prepare(
+        teamId
+          ? `SELECT id, team_id AS teamId, name, updated_at AS updatedAt FROM plays WHERE team_id = ? ORDER BY updated_at DESC`
+          : `SELECT id, team_id AS teamId, name, updated_at AS updatedAt FROM plays ORDER BY updated_at DESC`
+      )
+      .all(...(teamId ? [teamId] : []))
+  );
+
+  ipcMain.handle('db:get-play', (_event, playId) => {
+    const row = db.prepare(`SELECT id, team_id AS teamId, name, data, updated_at AS updatedAt FROM plays WHERE id = ?`).get(playId);
+    if (!row) return null;
+    return { ...row, data: JSON.parse(row.data) };
+  });
+
+  ipcMain.handle('db:save-play', (_event, { id, teamId, name, data }) => {
+    const json = JSON.stringify(data);
+    if (id) {
+      db.prepare(`UPDATE plays SET team_id = ?, name = ?, data = ?, updated_at = datetime('now') WHERE id = ?`).run(teamId ?? null, name, json, id);
+      return { id };
+    }
+    const newId = db
+      .prepare(`INSERT INTO plays (team_id, name, data) VALUES (?, ?, ?)`)
+      .run(teamId ?? null, name, json).lastInsertRowid;
+    return { id: newId };
+  });
+
+  ipcMain.handle('db:delete-play', (_event, playId) => {
+    db.prepare(`DELETE FROM plays WHERE id = ?`).run(playId);
+    return { deleted: true };
+  });
+
+  ipcMain.handle('db:save-game', async (_event, game) => {
+    const tier = await getTier();
+    if (tier.isPro) throw new Error('Pro plan is read-only — game entry is not available.');
+
+    const source = game.source === 'manual' ? 'manual' : 'photo';
     const saveTx = db.transaction((g) => {
       const teamId = upsertTeam(db, g.team, g.leagueId);
       const oppId = upsertTeam(db, g.opponent, g.leagueId);
@@ -246,9 +469,9 @@ function registerIpcHandlers(db, mainWindow) {
       const gameId = db
         .prepare(
           `INSERT INTO games (season_id, date, home_team_id, away_team_id, source)
-           VALUES (@seasonId, @date, @homeTeamId, @awayTeamId, 'photo')`
+           VALUES (@seasonId, @date, @homeTeamId, @awayTeamId, @source)`
         )
-        .run({ seasonId: g.seasonId, date: g.date, homeTeamId: teamId, awayTeamId: oppId }).lastInsertRowid;
+        .run({ seasonId: g.seasonId, date: g.date, homeTeamId: teamId, awayTeamId: oppId, source }).lastInsertRowid;
 
       insertRoster(db, gameId, teamId, g.players || []);
       insertRoster(db, gameId, oppId, g.opponentPlayers || []);
@@ -256,7 +479,14 @@ function registerIpcHandlers(db, mainWindow) {
       return gameId;
     });
 
-    return saveTx(game);
+    const gameId = saveTx(game);
+    try {
+      await pushGameToCloud(db, gameId);
+    } catch (err) {
+      console.error('pushGameToCloud failed, will retry next launch:', err);
+      db.prepare(`UPDATE games SET pending_sync = 1 WHERE id = ?`).run(gameId);
+    }
+    return gameId;
   });
 
   ipcMain.handle('db:get-game-box-score', (_event, gameId) => fetchGameBoxScore(db, gameId));
@@ -285,6 +515,14 @@ function registerIpcHandlers(db, mainWindow) {
   ipcMain.handle('db:get-team-scouting-report', (_event, teamId) => buildTeamScoutingReport(db, teamId));
 
   ipcMain.handle('db:get-player-scouting-report', (_event, playerId) => buildPlayerScoutingReport(db, playerId));
+
+  ipcMain.handle('db:get-team-scouting-report-all-competitions', (_event, teamName) =>
+    buildTeamScoutingReportAllCompetitions(db, teamName)
+  );
+
+  ipcMain.handle('db:get-player-scouting-report-all-competitions', (_event, playerName, teamName) =>
+    buildPlayerScoutingReportAllCompetitions(db, playerName, teamName)
+  );
 
   ipcMain.handle('db:get-league-averages', (_event, leagueId, seasonId) => {
     const rows = leagueSeasonRows(db, leagueId, seasonId);
@@ -520,6 +758,48 @@ function registerIpcHandlers(db, mainWindow) {
     setFavoriteTx();
     return { saved: true };
   });
+
+  /** Rows: [{ subjectId: teamId or playerId, isPlayer: boolean, zone, fgm, fga }, ...] — parsed client-side from the uploaded file, inserted as-is (replacing any prior import for the same team/season). */
+  ipcMain.handle('db:import-shot-zones', (_event, { teamId, seasonId, rows }) => {
+    const importTx = db.transaction(() => {
+      const teamPlayerIds = new Set(db.prepare(`SELECT id FROM players WHERE team_id = ?`).all(teamId).map((p) => p.id));
+      db.prepare(
+        `DELETE FROM shot_zones WHERE team_id = ? AND season_id = ? AND (player_id IS NULL OR player_id IN (SELECT id FROM players WHERE team_id = ?))`
+      ).run(teamId, seasonId, teamId);
+      const insert = db.prepare(
+        `INSERT INTO shot_zones (team_id, player_id, season_id, zone, fgm, fga) VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      for (const r of rows) {
+        const playerId = r.isPlayer ? r.subjectId : null;
+        if (r.isPlayer && !teamPlayerIds.has(playerId)) continue; // ignore rows for players not on this team
+        insert.run(teamId, playerId, seasonId, r.zone, r.fgm, r.fga);
+      }
+    });
+    importTx();
+    return { saved: true };
+  });
+
+  ipcMain.handle('db:get-team-shot-zones', (_event, teamId, seasonId) => {
+    const rows = db
+      .prepare(`SELECT zone, fgm, fga FROM shot_zones WHERE team_id = ? AND season_id = ? AND player_id IS NULL`)
+      .all(teamId, seasonId);
+    return { hasData: rows.length > 0, chart: buildZoneChart(rows) };
+  });
+
+  ipcMain.handle('db:get-player-shot-zones', (_event, playerId, seasonId) => {
+    const rows = db
+      .prepare(`SELECT zone, fgm, fga FROM shot_zones WHERE player_id = ? AND season_id = ?`)
+      .all(playerId, seasonId);
+    return { hasData: rows.length > 0, chart: buildZoneChart(rows) };
+  });
+
+  /** Individual shot locations for a real dot-scatter chart — {x,y,made,value}[], already in the app's 0-300x0-320 half-court coordinate space. */
+  ipcMain.handle('db:get-team-shot-events', (_event, teamId, seasonId) =>
+    db.prepare(`SELECT x, y, made, value FROM shot_events WHERE team_id = ? AND season_id = ?`).all(teamId, seasonId)
+  );
+  ipcMain.handle('db:get-player-shot-events', (_event, playerId, seasonId) =>
+    db.prepare(`SELECT x, y, made, value FROM shot_events WHERE player_id = ? AND season_id = ?`).all(playerId, seasonId)
+  );
 
   ipcMain.handle('db:list-players', (_event, teamId) =>
     db.prepare(`SELECT * FROM players WHERE team_id = ? ORDER BY name`).all(teamId)
@@ -1277,14 +1557,14 @@ function buildPlayerScoutingReport(db, playerId) {
   const winRows = allRows.filter((r) => winGameIds.has(r.game_id));
   const lossRows = allRows.filter((r) => lossGameIds.has(r.game_id));
 
-  const winVsLossInsights =
-    winRows.length >= 2 && lossRows.length >= 2
-      ? buildPlayerWinLossInsights(
-          player.name,
-          perGame(sumRows(winRows), winRows.length),
-          perGame(sumRows(lossRows), lossRows.length)
-        )
-      : [];
+  const hasEnoughWinLossGames = winRows.length >= 2 && lossRows.length >= 2;
+  const winVsLossInsights = hasEnoughWinLossGames
+    ? buildPlayerWinLossInsights(
+        player.name,
+        perGame(sumRows(winRows), winRows.length),
+        perGame(sumRows(lossRows), lossRows.length)
+      )
+    : [];
 
   const playingTimeInsights = buildPlayingTimeInsights(computePlayerAdvancedGameLog(db, playerId));
 
@@ -1296,7 +1576,140 @@ function buildPlayerScoutingReport(db, playerId) {
     games: summary.games,
     profileInsights,
     winVsLossInsights,
+    hasEnoughWinLossGames,
     playingTimeInsights,
+  };
+}
+
+/**
+ * Same shape as buildTeamScoutingReport, but pooled across every league-scoped
+ * sibling row for this club (same sibling-matching-by-name pattern as
+ * db:get-team-all-competitions) instead of one single team_id. The "vs
+ * average" baseline is likewise pooled across each sibling's own league
+ * average, weighted by how many of that league's games are actually in the pool.
+ */
+function buildTeamScoutingReportAllCompetitions(db, teamName) {
+  const siblings = db
+    .prepare(`SELECT t.id, t.league_id, l.name AS league_name FROM teams t JOIN leagues l ON l.id = t.league_id WHERE t.name = ?`)
+    .all(teamName);
+  if (siblings.length === 0) return null;
+  const siblingIds = siblings.map((s) => s.id);
+  const placeholders = siblingIds.map(() => '?').join(',');
+
+  const teamAggs = siblings.map((s) => teamAggregate(db, s.id));
+  const allRows = teamAggs.flatMap((a) => a.rows);
+  const totalGames = new Set(allRows.map((r) => r.game_id)).size;
+  const teamPerGame = perGame(sumRows(allRows), totalGames || 1);
+
+  const leagueAggs = siblings.map((s) => leagueAggregate(db, s.league_id));
+  const leagueRowsAll = leagueAggs.flatMap((a) => a.rows);
+  const leagueTeamGamesAll = leagueAggs.reduce((sum, a) => sum + (a.teamGames || 0), 0);
+  const leaguePerGame = perGame(sumRows(leagueRowsAll), leagueTeamGamesAll || 1);
+  const profileInsights = buildTeamProfileInsights(teamName, teamPerGame, leaguePerGame);
+
+  const playerNames = [
+    ...new Set(
+      db
+        .prepare(`SELECT DISTINCT name FROM players WHERE team_id IN (${placeholders})`)
+        .all(...siblingIds)
+        .map((p) => p.name)
+    ),
+  ];
+  const oppRowsAll = siblingIds.flatMap((id) => opponentAggregate(db, id).rows);
+  const oppTotalsAll = sumRows(oppRowsAll);
+  const teamTotalsAll = sumRows(allRows);
+  const keyPlayers = playerNames
+    .map((name) => {
+      const playerIds = db
+        .prepare(`SELECT id FROM players WHERE name = ? AND team_id IN (${placeholders})`)
+        .all(name, ...siblingIds)
+        .map((p) => p.id);
+      const rows = playerIds.flatMap((id) => db.prepare(`SELECT * FROM box_scores WHERE player_id = ?`).all(id));
+      const games = rows.length;
+      const pg = perGame(sumRows(rows), games || 1);
+      return {
+        playerId: playerIds[0],
+        playerName: name,
+        games,
+        pts: pg.pts ?? 0,
+        reb: (pg.oreb ?? 0) + (pg.dreb ?? 0),
+        ast: pg.ast ?? 0,
+        pie: games > 0 ? computePIE(sumRows(rows), teamTotalsAll, oppTotalsAll) : null,
+      };
+    })
+    .filter((p) => p.games >= 2)
+    .sort((a, b) => (b.pie ?? 0) - (a.pie ?? 0))
+    .slice(0, 3)
+    .map(({ games, ...rest }) => rest);
+
+  const results = siblingIds.flatMap((id) => teamGameResults(db, id));
+  const wins = results.filter((r) => r.won);
+  const losses = results.filter((r) => !r.won);
+  const lossPerGame = losses.length ? perGame(sumRows(losses.map((r) => r.teamTotals)), losses.length) : null;
+  const winPerGame = wins.length ? perGame(sumRows(wins.map((r) => r.teamTotals)), wins.length) : null;
+  const oppLossPerGame = losses.length ? perGame(sumRows(losses.map((r) => r.oppTotals)), losses.length) : null;
+  const oppWinPerGame = wins.length ? perGame(sumRows(wins.map((r) => r.oppTotals)), wins.length) : null;
+  const lossPatternInsights =
+    losses.length >= 2 && wins.length >= 2
+      ? buildLossPatternInsights(teamName, lossPerGame, winPerGame, oppLossPerGame, oppWinPerGame)
+      : [];
+
+  return {
+    teamId: siblingIds[0],
+    teamName,
+    leagueName: 'All competitions',
+    games: totalGames,
+    wins: wins.length,
+    losses: losses.length,
+    profileInsights,
+    keyPlayers,
+    lossPatternInsights,
+  };
+}
+
+/** Player counterpart to buildTeamScoutingReportAllCompetitions — pools every sibling (name, team-name) row for this player across leagues. */
+function buildPlayerScoutingReportAllCompetitions(db, playerName, teamName) {
+  const siblings = db
+    .prepare(
+      `SELECT p.id, t.id AS team_id, t.league_id
+       FROM players p JOIN teams t ON t.id = p.team_id
+       WHERE p.name = ? AND t.name = ?`
+    )
+    .all(playerName, teamName);
+  if (siblings.length === 0) return null;
+  const siblingPlayerIds = siblings.map((s) => s.id);
+  const siblingTeamIds = [...new Set(siblings.map((s) => s.team_id))];
+
+  const allRows = siblingPlayerIds.flatMap((id) => db.prepare(`SELECT * FROM box_scores WHERE player_id = ?`).all(id));
+  const games = allRows.length;
+  const summaryPerGame = perGame(sumRows(allRows), games || 1);
+
+  const leagueIds = [...new Set(siblings.map((s) => s.league_id))];
+  const leagueAggs = leagueIds.map((id) => leagueAggregate(db, id));
+  const leagueRowsAll = leagueAggs.flatMap((a) => a.rows);
+  const leaguePerGame = perGame(sumRows(leagueRowsAll), leagueRowsAll.length || 1);
+  const profileInsights = buildTeamProfileInsights(playerName, summaryPerGame, leaguePerGame);
+
+  const results = siblingTeamIds.flatMap((id) => teamGameResults(db, id));
+  const winGameIds = new Set(results.filter((r) => r.won).map((r) => r.gameId));
+  const lossGameIds = new Set(results.filter((r) => !r.won).map((r) => r.gameId));
+  const winRows = allRows.filter((r) => winGameIds.has(r.game_id));
+  const lossRows = allRows.filter((r) => lossGameIds.has(r.game_id));
+  const hasEnoughWinLossGames = winRows.length >= 2 && lossRows.length >= 2;
+  const winVsLossInsights = hasEnoughWinLossGames
+    ? buildPlayerWinLossInsights(playerName, perGame(sumRows(winRows), winRows.length), perGame(sumRows(lossRows), lossRows.length))
+    : [];
+
+  return {
+    playerId: siblingPlayerIds[0],
+    playerName,
+    teamName,
+    leagueName: 'All competitions',
+    games,
+    profileInsights,
+    winVsLossInsights,
+    hasEnoughWinLossGames,
+    playingTimeInsights: [],
   };
 }
 
@@ -1863,6 +2276,365 @@ function computeLineupCombosForTeam(db, teamId, seasonId) {
     netRatingPer100: c.netRatingPer100,
   }));
   return { combos: named, hasPbp: true };
+}
+
+/**
+ * Points off Turnovers / Second Chance Points / Fastbreak Points for one
+ * team, summed across exactly the given `gameIds` — the caller picks which
+ * games (all season, last 5, a specific head-to-head meeting, ...). Only
+ * games with real play-by-play data contribute; returns null entirely if
+ * none of the given games have any (honesty gate, same as every other
+ * PBP-only metric).
+ */
+function computePossessionStatsForTeamGames(db, teamId, gameIds) {
+  if (gameIds.length === 0) return null;
+  const placeholders = gameIds.map(() => '?').join(',');
+  const games = db
+    .prepare(
+      `SELECT id, home_team_id AS homeTeamId, away_team_id AS awayTeamId FROM games
+       WHERE id IN (${placeholders}) AND EXISTS (SELECT 1 FROM game_events ge WHERE ge.game_id = games.id)`
+    )
+    .all(...gameIds);
+  if (games.length === 0) return null;
+
+  const totals = { pointsOffTurnovers: 0, secondChancePoints: 0, fastbreakPoints: 0 };
+  for (const g of games) {
+    const events = db.prepare(`SELECT * FROM game_events WHERE game_id = ? ORDER BY clock_seconds, sequence`).all(g.id);
+    const possessions = reconstructGamePossessions(events, g.homeTeamId, g.awayTeamId);
+    const stats = possessionStatsForTeam(possessions, teamId);
+    totals.pointsOffTurnovers += stats.pointsOffTurnovers;
+    totals.secondChancePoints += stats.secondChancePoints;
+    totals.fastbreakPoints += stats.fastbreakPoints;
+  }
+  return totals;
+}
+
+/**
+ * Official per-game Points off Turnovers / Second Chance / Fastbreak /
+ * Points in the Paint, when a real data provider's own shot-level flags were
+ * imported (see team_game_advanced_stats table + data-import/). Preferred
+ * over computePossessionStatsForTeamGames's clock-threshold estimate
+ * whenever it's available — it's the source's own ground truth, not a
+ * heuristic. Returns null if none of the given games have official rows
+ * (same honesty-gate pattern as the possession estimate).
+ */
+function computeOfficialTeamAdvancedStats(db, teamId, gameIds) {
+  if (gameIds.length === 0) return null;
+  const placeholders = gameIds.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT * FROM team_game_advanced_stats WHERE team_id = ? AND game_id IN (${placeholders})`
+    )
+    .all(teamId, ...gameIds);
+  if (rows.length === 0) return null;
+  const totals = { pointsOffTurnovers: 0, secondChancePoints: 0, fastbreakPoints: 0, pointsInThePaint: 0 };
+  for (const r of rows) {
+    totals.pointsOffTurnovers += r.points_off_turnovers;
+    totals.secondChancePoints += r.second_chance_points;
+    totals.fastbreakPoints += r.fastbreak_points;
+    totals.pointsInThePaint += r.points_in_the_paint;
+  }
+  return { ...totals, games: rows.length };
+}
+
+/**
+ * Off/Def Four Factors-family line for one team, restricted to an exact
+ * game-id set — the shared building block for computeScoutingReport's
+ * "Impact IQ Factors" section (both sides) and each Team Stats split.
+ */
+function offDefFourFactors(db, teamId, gameIds) {
+  const teamAgg = teamAggregateThrough(db, teamId, gameIds);
+  const oppAgg = opponentAggregateThrough(db, teamId, gameIds);
+  const games = gameIds.length || 1;
+  const offPerGame = perGame(teamAgg.totals, games);
+  const defPerGame = perGame(oppAgg.totals, games);
+  const offAdv = advancedStatLine(offPerGame);
+  const defAdv = advancedStatLine(defPerGame);
+  const offBall = ballHandlingStatLine({ row: teamAgg.totals, teamRow: teamAgg.totals, oppRow: oppAgg.totals, isTeam: true });
+  const defBall = ballHandlingStatLine({ row: oppAgg.totals, teamRow: oppAgg.totals, oppRow: teamAgg.totals, isTeam: true });
+  const offReb = reboundingStatLine({ row: teamAgg.totals, teamRow: teamAgg.totals, oppRow: oppAgg.totals, isTeam: true });
+  const defReb = reboundingStatLine({ row: oppAgg.totals, teamRow: oppAgg.totals, oppRow: teamAgg.totals, isTeam: true });
+  return {
+    off: { efgPct: offAdv.efg_pct, tsPct: offAdv.ts_pct, tovPct: offBall.tov_pct, astPct: offBall.ast_pct, trebPct: offReb.treb_pct, ftRate: offAdv.ft_rate, ftPct: offAdv.ft_pct },
+    def: { efgPct: defAdv.efg_pct, tsPct: defAdv.ts_pct, tovPct: defBall.tov_pct, astPct: defBall.ast_pct, trebPct: defReb.treb_pct, ftRate: defAdv.ft_rate, ftPct: defAdv.ft_pct },
+  };
+}
+
+/** Full "Team Stats" row (the PDF's big table) for one team, restricted to an exact game-id set. Null if the set is empty. */
+function teamStatsRowFor(db, teamId, gameIds) {
+  if (gameIds.length === 0) return null;
+  const off = teamAggregateThrough(db, teamId, gameIds);
+  const def = opponentAggregateThrough(db, teamId, gameIds);
+  const games = gameIds.length;
+  const offPerGame = perGame(off.totals, games);
+  const defPerGame = perGame(def.totals, games);
+  const offAdv = advancedStatLine(offPerGame);
+  const defAdv = advancedStatLine(defPerGame);
+  // Prefer official per-shot-flag numbers (real data provider ground truth)
+  // over the app's own clock-threshold possession estimate, whenever the
+  // imported games actually have official data.
+  const official = computeOfficialTeamAdvancedStats(db, teamId, gameIds);
+  const poss = official ? null : computePossessionStatsForTeamGames(db, teamId, gameIds);
+  const extra = official
+    ? {
+        pointsOffTurnovers: official.pointsOffTurnovers / official.games,
+        secondChancePoints: official.secondChancePoints / official.games,
+        fastbreakPoints: official.fastbreakPoints / official.games,
+        pointsInThePaint: official.pointsInThePaint / official.games,
+        advancedStatsAreOfficial: true,
+      }
+    : {
+        pointsOffTurnovers: poss ? poss.pointsOffTurnovers / games : null,
+        secondChancePoints: poss ? poss.secondChancePoints / games : null,
+        fastbreakPoints: poss ? poss.fastbreakPoints / games : null,
+        pointsInThePaint: null,
+        advancedStatsAreOfficial: false,
+      };
+  return {
+    games,
+    pts: offPerGame.pts, fgm: offPerGame.fgm, fga: offPerGame.fga, fgPct: offAdv.fg_pct,
+    tpm: offPerGame.tpm, tpa: offPerGame.tpa, tpPct: offAdv.tp_pct,
+    ftm: offPerGame.ftm, fta: offPerGame.fta, ftPct: offAdv.ft_pct,
+    ast: offPerGame.ast,
+    oreb: offPerGame.oreb, dreb: offPerGame.dreb, reb: (offPerGame.oreb ?? 0) + (offPerGame.dreb ?? 0),
+    stl: offPerGame.stl, blk: offPerGame.blk, tov: offPerGame.tov,
+    pace: pacePerGame(off.totals, games),
+    ortg: offAdv.points_per_100poss,
+    drtg: defAdv.points_per_100poss,
+    ppp: offAdv.points_per_poss,
+    efgPct: offAdv.efg_pct,
+    ...extra,
+  };
+}
+
+/**
+ * Orchestrates the whole Scouting screen for one upcoming matchup. Per the
+ * source template, the bulk of the report (roster, depth chart, team stats,
+ * shot charts, leaders, per-player pages) profiles the OPPONENT — the team
+ * being scouted — not "our" team; only Impact IQ Factors compares both
+ * sides directly, matching how a real pre-game scouting report is used.
+ */
+function computeScoutingReport(db, ourTeamId, opponentTeamId, seasonId, gameDate) {
+  const ourTeam = db.prepare(`SELECT id, name FROM teams WHERE id = ?`).get(ourTeamId);
+  const oppTeam = db.prepare(`SELECT id, name FROM teams WHERE id = ?`).get(opponentTeamId);
+  if (!ourTeam || !oppTeam) return null;
+  const season = db.prepare(`SELECT year FROM seasons WHERE id = ?`).get(seasonId);
+
+  const seasonGamesFor = (teamId) =>
+    db
+      .prepare(
+        `SELECT id, date, home_team_id AS homeTeamId, away_team_id AS awayTeamId FROM games
+         WHERE season_id = ? AND (home_team_id = ? OR away_team_id = ?) ORDER BY date ASC, id ASC`
+      )
+      .all(seasonId, teamId, teamId);
+
+  const oppGames = seasonGamesFor(opponentTeamId);
+  const oppGameIds = oppGames.map((g) => g.id);
+  const oppLast5GameIds = oppGameIds.slice(-5);
+  const h2hGames = oppGames.filter((g) => g.homeTeamId === ourTeamId || g.awayTeamId === ourTeamId);
+
+  const oppResults = teamGameResults(db, opponentTeamId).filter((r) => oppGameIds.includes(r.gameId));
+  const wins = oppResults.filter((r) => r.won).length;
+  const losses = oppResults.filter((r) => !r.won).length;
+
+  // --- Roster / cumulative boxscore / depth chart (opponent) ---
+  const rosterRows = db.prepare(`SELECT id, name, position, depth_rank, height, hidden FROM players WHERE team_id = ? ORDER BY name`).all(opponentTeamId);
+  const roster = rosterRows.map((p) => {
+    const rows =
+      oppGameIds.length > 0
+        ? db.prepare(`SELECT * FROM box_scores WHERE player_id = ? AND game_id IN (${oppGameIds.map(() => '?').join(',')})`).all(p.id, ...oppGameIds)
+        : [];
+    const games = rows.length;
+    const totals = sumRows(rows);
+    const pg = perGame(totals, games || 1);
+    return {
+      playerId: p.id,
+      name: p.name,
+      position: p.position,
+      depthRank: p.depth_rank,
+      height: p.height,
+      hidden: !!p.hidden,
+      games,
+      totals,
+      perGame: pg,
+    };
+  });
+  const visibleRoster = roster.filter((p) => !p.hidden);
+  const teamAggAll = teamAggregateThrough(db, opponentTeamId, oppGameIds);
+  const oppOfTeamAggAll = opponentAggregateThrough(db, opponentTeamId, oppGameIds);
+  const teamTotalsRow = perGame(teamAggAll.totals, oppGameIds.length || 1);
+  const opponentAverageRow = perGame(oppOfTeamAggAll.totals, oppGameIds.length || 1);
+
+  const depthPositions = ['PG', 'SG', 'SF', 'PF', 'C'];
+  const depthChart = depthPositions.map((pos) => ({
+    position: pos,
+    players: visibleRoster
+      .filter((p) => p.position === pos)
+      .sort((a, b) => (a.depthRank ?? 999) - (b.depthRank ?? 999))
+      .map((p) => ({ playerId: p.playerId, name: p.name })),
+  }));
+
+  // --- Recent games (opponent's last 5) ---
+  const recentGames = oppGames.slice(-5).reverse().map((g) => {
+    const oppSideTeamId = g.homeTeamId === opponentTeamId ? g.awayTeamId : g.homeTeamId;
+    const oppSideName = db.prepare(`SELECT name FROM teams WHERE id = ?`).get(oppSideTeamId)?.name ?? '';
+    const totals = sumRows(db.prepare(`SELECT bs.* FROM box_scores bs JOIN players p ON p.id = bs.player_id WHERE bs.game_id = ? AND p.team_id = ?`).all(g.id, opponentTeamId));
+    const oppTotals = sumRows(db.prepare(`SELECT bs.* FROM box_scores bs JOIN players p ON p.id = bs.player_id WHERE bs.game_id = ? AND p.team_id = ?`).all(g.id, oppSideTeamId));
+    return {
+      date: g.date,
+      opponent: oppSideName,
+      site: g.homeTeamId === opponentTeamId ? 'Home' : 'Away',
+      won: totals.pts > oppTotals.pts,
+      score: `${totals.pts}-${oppTotals.pts}`,
+    };
+  });
+
+  // --- Impact IQ Factors (both sides) ---
+  const impactIqFactors = {
+    us: offDefFourFactors(db, ourTeamId, seasonGamesFor(ourTeamId).map((g) => g.id)),
+    opponent: offDefFourFactors(db, opponentTeamId, oppGameIds),
+  };
+
+  // --- Team Stats splits (opponent) ---
+  const teamStats = {
+    allOff: teamStatsRowFor(db, opponentTeamId, oppGameIds),
+    last5: teamStatsRowFor(db, opponentTeamId, oppLast5GameIds),
+    meetings: h2hGames.map((g) => ({
+      date: g.date,
+      site: g.homeTeamId === opponentTeamId ? 'vs' : '@',
+      ourTeamName: ourTeam.name,
+      stats: teamStatsRowFor(db, opponentTeamId, [g.id]),
+    })),
+  };
+
+  // --- Points per period (opponent, across their whole season — a different real
+  // opponent in each game, so this sums by "was it opponentTeamId's own event or
+  // not" rather than assuming one fixed second team throughout). ---
+  const pointsPerPeriod = (() => {
+    if (oppGameIds.length === 0) return null;
+    const placeholders = oppGameIds.map(() => '?').join(',');
+    const events = db
+      .prepare(`SELECT game_id, clock_seconds, points, team_id FROM game_events WHERE game_id IN (${placeholders}) AND event_type = 'score'`)
+      .all(...oppGameIds);
+    if (events.length === 0) return null;
+    const pbpGameCount = new Set(events.map((e) => e.game_id)).size;
+    const team = [0, 0, 0, 0];
+    const opponent = [0, 0, 0, 0];
+    for (const e of events) {
+      const idx = Math.min(Math.floor(e.clock_seconds / 600), 3);
+      const target = e.team_id === opponentTeamId ? team : opponent;
+      target[idx] += e.points || 0;
+    }
+    return { games: pbpGameCount, team: team.map((v) => v / pbpGameCount), opponent: opponent.map((v) => v / pbpGameCount) };
+  })();
+
+  // --- Team Pace (both sides) ---
+  const teamPace = {
+    us: pacePerGame(teamAggregateThrough(db, ourTeamId, seasonGamesFor(ourTeamId).map((g) => g.id)).totals, seasonGamesFor(ourTeamId).length || 1),
+    opponent: pacePerGame(teamAggAll.totals, oppGameIds.length || 1),
+  };
+
+  // --- Team Advanced Stats row (opponent) ---
+  const ptsFor = teamTotalsRow.pts ?? 0;
+  const ptsAgainst = opponentAverageRow.pts ?? 0;
+  const advStatsRow = {
+    wins,
+    losses,
+    pythagoreanWinPct: pythagoreanWinPct(ptsFor, ptsAgainst),
+    ortg: advancedStatLine(teamTotalsRow).points_per_100poss,
+    drtg: advancedStatLine(opponentAverageRow).points_per_100poss,
+    pace: teamPace.opponent,
+    ftRate: advancedStatLine(teamTotalsRow).ft_rate,
+    threePtRate: advancedStatLine(teamTotalsRow).three_pt_attempt_rate,
+    possessions: estimatePossessions(teamAggAll.totals) / (oppGameIds.length || 1),
+  };
+  advStatsRow.netRating = advStatsRow.ortg !== null && advStatsRow.drtg !== null ? advStatsRow.ortg - advStatsRow.drtg : null;
+
+  // --- Leaders (opponent roster) ---
+  const withGames = visibleRoster.filter((p) => p.games > 0);
+  const topBy = (fn, n = 5) => [...withGames].sort((a, b) => fn(b) - fn(a)).slice(0, n);
+  const leaders = {
+    topScorers: topBy((p) => p.perGame.pts ?? 0).map((p) => ({ playerId: p.playerId, name: p.name, value: p.perGame.pts ?? 0, fgm: p.totals.fgm, fga: p.totals.fga, fgPct: advancedStatLine(p.perGame).fg_pct })),
+    threePtShooters: [...withGames]
+      .filter((p) => (p.totals.tpa ?? 0) >= 10)
+      .sort((a, b) => advancedStatLine(b.perGame).tp_pct - advancedStatLine(a.perGame).tp_pct)
+      .slice(0, 5)
+      .map((p) => ({ playerId: p.playerId, name: p.name, tpm: p.totals.tpm, tpa: p.totals.tpa, tpPct: advancedStatLine(p.perGame).tp_pct })),
+    ftShooters: [...withGames]
+      .filter((p) => (p.totals.fta ?? 0) >= 10)
+      .sort((a, b) => advancedStatLine(b.perGame).ft_pct - advancedStatLine(a.perGame).ft_pct)
+      .slice(0, 5)
+      .map((p) => ({ playerId: p.playerId, name: p.name, ftm: p.totals.ftm, fta: p.totals.fta, ftPct: advancedStatLine(p.perGame).ft_pct })),
+    topRebounders: topBy((p) => (p.perGame.oreb ?? 0) + (p.perGame.dreb ?? 0)).map((p) => ({
+      playerId: p.playerId,
+      name: p.name,
+      reb: p.totals.oreb + p.totals.dreb,
+      oreb: p.totals.oreb,
+    })),
+    ballControl: [...withGames]
+      .sort((a, b) => (b.totals.ast ?? 0) / Math.max(1, b.totals.tov ?? 1) - (a.totals.ast ?? 0) / Math.max(1, a.totals.tov ?? 1))
+      .slice(0, 5)
+      .map((p) => ({ playerId: p.playerId, name: p.name, ast: p.totals.ast, tov: p.totals.tov, ratio: p.totals.tov > 0 ? p.totals.ast / p.totals.tov : null })),
+    defense: topBy((p) => (p.perGame.stl ?? 0) + (p.perGame.blk ?? 0)).map((p) => ({
+      playerId: p.playerId,
+      name: p.name,
+      stl: p.perGame.stl ?? 0,
+      blk: p.perGame.blk ?? 0,
+    })),
+  };
+
+  // --- Per-player pages: season line + each head-to-head meeting vs us ---
+  const playerPages = visibleRoster.map((p) => {
+    const meetings = h2hGames.map((g) => {
+      const rows = db.prepare(`SELECT * FROM box_scores WHERE player_id = ? AND game_id = ?`).all(p.playerId, g.id);
+      if (rows.length === 0) return null;
+      const pg = perGame(sumRows(rows), 1);
+      return { date: g.date, site: g.homeTeamId === opponentTeamId ? 'vs' : '@', perGame: pg, advanced: advancedStatLine(pg) };
+    }).filter(Boolean);
+    return {
+      playerId: p.playerId,
+      name: p.name,
+      position: p.position,
+      height: p.height,
+      games: p.games,
+      perGame: p.perGame,
+      advanced: advancedStatLine(p.perGame),
+      meetings,
+    };
+  });
+
+  return {
+    ourTeamId,
+    ourTeamName: ourTeam.name,
+    opponentTeamId,
+    opponentTeamName: oppTeam.name,
+    seasonId,
+    seasonYear: season ? season.year : '',
+    gameDate,
+    record: { wins, losses },
+    roster: roster.map((p) => ({
+      playerId: p.playerId,
+      name: p.name,
+      position: p.position,
+      depthRank: p.depthRank,
+      height: p.height,
+      hidden: p.hidden,
+      games: p.games,
+      perGame: p.perGame,
+      totals: p.totals,
+    })),
+    teamTotalsPerGame: teamTotalsRow,
+    opponentAveragePerGame: opponentAverageRow,
+    depthChart,
+    recentGames,
+    impactIqFactors,
+    teamStats,
+    pointsPerPeriod,
+    teamPace,
+    advStatsRow,
+    leaders,
+    playerPages,
+  };
 }
 
 /**

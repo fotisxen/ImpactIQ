@@ -44,6 +44,7 @@ import {
 } from '../../core/models/box-score.model';
 import { ReportCardService } from '../../shared/services/report-card.service';
 import { ToastService } from '../../shared/services/toast.service';
+import { formatMinutesClock } from '../../shared/utils/format-minutes';
 
 interface ChartModalState {
   title: string;
@@ -594,7 +595,7 @@ interface Rankable {
                 [clickable]="true"
                 (tileClick)="openScoringBreakdownChart(summary)"
               />
-              <app-stat-tile label="MIN / game" [value]="numFmt(summary.perGame['min'])" />
+              <app-stat-tile label="MIN / game" [value]="formatMinutesClock(summary.perGame['min'])" />
               <app-stat-tile label="FGM / game" [value]="numFmt(summary.perGame['fgm'])" />
               <app-stat-tile label="FGA / game" [value]="numFmt(summary.perGame['fga'])" />
               <app-stat-tile label="2PA / game" [value]="numFmt(twoPtAttemptsPerGame(summary))" />
@@ -1524,6 +1525,8 @@ export class DashboardComponent implements OnInit {
   protected numFmt(n: number | undefined): string {
     return (n ?? 0).toFixed(1);
   }
+
+  protected readonly formatMinutesClock = formatMinutesClock;
 
   protected pctFmt(n: number | undefined | null): string {
     return `${((n ?? 0) * 100).toFixed(1)}%`;

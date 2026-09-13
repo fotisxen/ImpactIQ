@@ -145,6 +145,260 @@ export interface SeasonHistoryRow {
   netRating: number | null;
 }
 
+export type ShotZoneKey = 'at_rim' | 'mid_range' | 'corner_3' | 'wing_3' | 'top_key_3';
+
+export interface ShotZoneEntry {
+  zone: ShotZoneKey;
+  fgm: number;
+  fga: number;
+  fgPct: number | null;
+  frequency: number | null;
+  heat: 'hot' | 'cold' | 'neutral';
+}
+
+export interface ShotZoneChart {
+  hasData: boolean;
+  chart: ShotZoneEntry[];
+}
+
+/** One individual shot attempt, already in the app's shared half-court coordinate space (0-300 wide, 0-320 deep, basket at 150,20). */
+export interface ShotEvent {
+  x: number;
+  y: number;
+  made: number; // 0 or 1 (SQLite has no real boolean)
+  value: number; // 2 or 3
+}
+
+export interface ScoutingRosterPlayer {
+  playerId: number;
+  name: string;
+  position: string | null;
+  depthRank: number | null;
+  height: string | null;
+  hidden: boolean;
+  games: number;
+  perGame: Record<string, number>;
+  totals: Record<string, number>;
+}
+
+export interface ScoutingDepthChartRow {
+  position: string;
+  players: { playerId: number; name: string }[];
+}
+
+export interface ScoutingRecentGame {
+  date: string;
+  opponent: string;
+  site: 'Home' | 'Away';
+  won: boolean;
+  score: string;
+}
+
+export interface OffDefFourFactorsSide {
+  efgPct: number | null;
+  tsPct: number | null;
+  tovPct: number | null;
+  astPct: number | null;
+  trebPct: number | null;
+  ftRate: number | null;
+  ftPct: number | null;
+}
+
+export interface ScoutingTeamStatsRow {
+  games: number;
+  pts: number;
+  fgm: number;
+  fga: number;
+  fgPct: number | null;
+  tpm: number;
+  tpa: number;
+  tpPct: number | null;
+  ftm: number;
+  fta: number;
+  ftPct: number | null;
+  ast: number;
+  oreb: number;
+  dreb: number;
+  reb: number;
+  stl: number;
+  blk: number;
+  tov: number;
+  pace: number;
+  ortg: number;
+  drtg: number;
+  ppp: number;
+  efgPct2: number | null;
+  pointsOffTurnovers: number | null;
+  secondChancePoints: number | null;
+  fastbreakPoints: number | null;
+  pointsInThePaint: number | null;
+  /** True when the 4 stats above came from a real data provider's own per-shot flags
+   *  (e.g. an imported EuroLeague season) rather than the app's own clock-threshold estimate. */
+  advancedStatsAreOfficial: boolean;
+}
+
+export interface ScoutingLeaderEntry {
+  playerId: number;
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface ScoutingPlayerPageMeeting {
+  date: string;
+  site: string;
+  perGame: Record<string, number>;
+  advanced: AdvancedStatLine;
+}
+
+export interface ScoutingPlayerPage {
+  playerId: number;
+  name: string;
+  position: string | null;
+  height: string | null;
+  games: number;
+  perGame: Record<string, number>;
+  advanced: AdvancedStatLine;
+  meetings: ScoutingPlayerPageMeeting[];
+}
+
+export interface ScoutingReport {
+  ourTeamId: number;
+  ourTeamName: string;
+  opponentTeamId: number;
+  opponentTeamName: string;
+  seasonId: number;
+  seasonYear: string;
+  gameDate: string;
+  record: { wins: number; losses: number };
+  roster: ScoutingRosterPlayer[];
+  teamTotalsPerGame: Record<string, number>;
+  opponentAveragePerGame: Record<string, number>;
+  depthChart: ScoutingDepthChartRow[];
+  recentGames: ScoutingRecentGame[];
+  impactIqFactors: {
+    us: { off: OffDefFourFactorsSide; def: OffDefFourFactorsSide };
+    opponent: { off: OffDefFourFactorsSide; def: OffDefFourFactorsSide };
+  };
+  teamStats: {
+    allOff: ScoutingTeamStatsRow | null;
+    last5: ScoutingTeamStatsRow | null;
+    meetings: { date: string; site: string; ourTeamName: string; stats: ScoutingTeamStatsRow | null }[];
+  };
+  pointsPerPeriod: { games: number; team: number[]; opponent: number[] } | null;
+  teamPace: { us: number; opponent: number };
+  advStatsRow: {
+    wins: number;
+    losses: number;
+    pythagoreanWinPct: number | null;
+    ortg: number | null;
+    drtg: number | null;
+    pace: number;
+    ftRate: number | null;
+    threePtRate: number | null;
+    possessions: number;
+    netRating: number | null;
+  };
+  leaders: {
+    topScorers: ScoutingLeaderEntry[];
+    threePtShooters: ScoutingLeaderEntry[];
+    ftShooters: ScoutingLeaderEntry[];
+    topRebounders: ScoutingLeaderEntry[];
+    ballControl: ScoutingLeaderEntry[];
+    defense: ScoutingLeaderEntry[];
+  };
+  playerPages: ScoutingPlayerPage[];
+}
+
+export interface ScoutingReportRecord {
+  id: number;
+  our_team_id: number;
+  opponent_team_id: number;
+  season_id: number;
+  game_date: string;
+  keysToGame: string[];
+}
+
+export interface ScoutingReportPlayerNote {
+  playerId: number;
+  notes: string[];
+  photoPath: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Draw (play diagramming) — one play is a sequence of court "frames"; a coach
+// drags players/ball into position on each frame and draws movement/pass/
+// screen/dribble lines, then adds another frame (pre-seeded with the last
+// frame's positions) to continue the same play into its next phase.
+// ---------------------------------------------------------------------------
+
+export type PlayDrawingType = 'move' | 'pass' | 'screen' | 'dribble' | 'text';
+
+export interface PlayDrawing {
+  id: string;
+  type: PlayDrawingType;
+  /** For every type except 'text': the drawn line's endpoints, in the court's 0-300 x 0-320 viewBox. */
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** Only for type 'text': the label content, placed at (x1, y1). */
+  text?: string;
+}
+
+export interface PlayFrame {
+  players: { id: number; x: number; y: number }[];
+  ball: { x: number; y: number };
+  drawings: PlayDrawing[];
+}
+
+export interface PlayData {
+  frames: PlayFrame[];
+}
+
+/** One row in the playbook list — no `data` (frames can be large; fetched separately via getPlay). */
+export interface PlaybookEntry {
+  id: number;
+  teamId: number | null;
+  name: string;
+  updatedAt: string;
+}
+
+export interface PlaybookPlay {
+  id: number;
+  teamId: number | null;
+  name: string;
+  data: PlayData;
+  updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Scouting report distribution — publishing a report to a club's players
+// (Supabase-backed, separate from the local SQLite data everything else in
+// this file describes).
+// ---------------------------------------------------------------------------
+
+export interface PublishedReport {
+  id: string;
+  opponent_name: string | null;
+  game_date: string | null;
+  published_at: string;
+}
+
+export interface ReportViewer {
+  viewerId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  viewedAt: string;
+}
+
+export interface CloudPlayer {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+}
+
 /** One game a player has data for, flattened across every league/cup they appear in — for the Player "Games" tab. */
 export interface PlayerCrossCompetitionGameRow {
   game_id: number;
@@ -379,6 +633,8 @@ export interface PlayerScoutingReport {
   games: number;
   profileInsights: ProfileInsight[];
   winVsLossInsights: PatternInsight[];
+  /** False only when there are genuinely fewer than 2 wins or 2 losses — distinguishes "not enough games" from "enough games, no pattern found" for winVsLossInsights being empty. */
+  hasEnoughWinLossGames: boolean;
   /** Advanced metrics whose season trend doesn't match the playing-time trend — e.g. eFG% rising with flat minutes. Needs at least 5 games; silently empty otherwise. */
   playingTimeInsights: PatternInsight[];
 }
@@ -433,37 +689,49 @@ export interface Profile {
 }
 
 export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'canceled' | 'inactive';
+export type Tier = 'manual' | 'photo' | 'pro';
 
-export interface BaseSubscription {
-  source: 'guest' | 'none' | 'individual' | 'team';
-  id?: string;
-  tier?: 'individual' | 'team';
-  billing_interval?: 'month' | 'year';
-  status?: SubscriptionStatus;
-  seat_count?: number;
-  current_period_end?: string | null;
-  cancel_at_period_end?: boolean;
-  organizationName?: string | null;
-}
-
-export interface UploadPlan {
-  id: string;
-  name: string;
-  monthly_upload_limit: number;
-  price_cents: number;
-  currency: string;
-}
-
-export interface UploadStatus {
+/** Every subscription is an organization (club) purchase — even a solo coach subscribes as an org of one. */
+export interface AccountSubscription {
   source: 'guest' | 'none' | 'active';
-  planName?: string | null;
-  limit?: number;
-  used: number;
-  remaining?: number;
-  exhausted?: boolean;
+  tier?: Tier;
   status?: SubscriptionStatus;
   currentPeriodEnd?: string | null;
   cancelAtPeriodEnd?: boolean;
+  organizationId?: string | null;
+  organizationName?: string | null;
+  isPlatformAdmin?: boolean;
+}
+
+/** One row in the owner-only Admin page's organization table (see admin-list-organizations). */
+export interface AdminOrganizationRow {
+  id: string;
+  name: string;
+  defaultTeamId: number | null;
+  defaultTeamName: string | null;
+  tier: Tier | null;
+  status: SubscriptionStatus | null;
+  currentPeriodEnd: string | null;
+  memberCount: number;
+}
+
+/** A local team that's already been pushed to the cloud, so its remote id is known — see admin:list-syncable-teams. */
+export interface AdminSyncableTeam {
+  localId: number;
+  name: string;
+  league_name: string | null;
+  remoteId: string;
+}
+
+export interface CreateAccountParams {
+  email: string;
+  firstName: string;
+  lastName: string;
+  role?: string;
+  organizationId?: string;
+  organizationName?: string;
+  tier: Tier;
+  defaultTeamId?: number;
 }
 
 export interface SaveGamePayload {
@@ -474,6 +742,8 @@ export interface SaveGamePayload {
   date: string;
   players: PlayerBoxScore[];
   opponentPlayers: PlayerBoxScore[];
+  /** Which entry method produced this game — drives tier gating (Photo tier only for 'photo'). */
+  source: 'manual' | 'photo';
   /** Only present for play-by-play imports — the raw substitution/scoring timeline, stored for future on/off analysis. */
   events?: GameEvent[];
 }
@@ -522,6 +792,8 @@ export interface BoxscoreApi {
   getGameInsights(gameId: number): Promise<GameInsightsResult | null>;
   getTeamScoutingReport(teamId: number): Promise<TeamScoutingReport | null>;
   getPlayerScoutingReport(playerId: number): Promise<PlayerScoutingReport | null>;
+  getTeamScoutingReportAllCompetitions(teamName: string): Promise<TeamScoutingReport | null>;
+  getPlayerScoutingReportAllCompetitions(playerName: string, teamName: string): Promise<PlayerScoutingReport | null>;
   getTeamAllCompetitions(teamId: number): Promise<AllCompetitionsSummary | null>;
   getPlayerAllCompetitions(playerId: number): Promise<AllCompetitionsSummary | null>;
   listTeams(): Promise<Team[]>;
@@ -529,6 +801,60 @@ export interface BoxscoreApi {
   listAllPlayers(): Promise<PlayerListEntry[]>;
   getFavoriteTeam(): Promise<Team | null>;
   setFavoriteTeam(teamId: number): Promise<{ saved: boolean }>;
+  importShotZones(params: {
+    teamId: number;
+    seasonId: number;
+    rows: { subjectId: number; isPlayer: boolean; zone: ShotZoneKey; fgm: number; fga: number }[];
+  }): Promise<{ saved: boolean }>;
+  getTeamShotZones(teamId: number, seasonId: number): Promise<ShotZoneChart>;
+  getPlayerShotZones(playerId: number, seasonId: number): Promise<ShotZoneChart>;
+  getTeamShotEvents(teamId: number, seasonId: number): Promise<ShotEvent[]>;
+  getPlayerShotEvents(playerId: number, seasonId: number): Promise<ShotEvent[]>;
+
+  updatePlayerDepthRank(playerId: number, depthRank: number | null): Promise<{ saved: boolean }>;
+  updatePlayerHeight(playerId: number, height: string | null): Promise<{ saved: boolean }>;
+  updatePlayerHidden(playerId: number, hidden: boolean): Promise<{ saved: boolean }>;
+  getScoutingReport(
+    ourTeamId: number,
+    opponentTeamId: number,
+    seasonId: number,
+    gameDate: string
+  ): Promise<ScoutingReport | null>;
+  getOrCreateScoutingReportRecord(params: {
+    ourTeamId: number;
+    opponentTeamId: number;
+    seasonId: number;
+    gameDate: string;
+  }): Promise<ScoutingReportRecord>;
+  saveScoutingReportKeys(reportId: number, keys: string[]): Promise<{ saved: boolean }>;
+  getScoutingReportPlayerNotes(reportId: number): Promise<ScoutingReportPlayerNote[]>;
+  saveScoutingReportPlayerNotes(reportId: number, playerId: number, notes: string[]): Promise<{ saved: boolean }>;
+  saveScoutingReportPlayerPhoto(
+    reportId: number,
+    playerId: number,
+    photoDataUrl: string | null
+  ): Promise<{ saved: boolean }>;
+  exportScoutingReportPdf(params: {
+    ourTeamId: number;
+    opponentTeamId: number;
+    seasonId: number;
+    gameDate: string;
+  }): Promise<{ saved: boolean; filePath?: string }>;
+  publishScoutingReport(params: {
+    ourTeamId: number;
+    opponentTeamId: number;
+    seasonId: number;
+    gameDate: string;
+  }): Promise<{ published: boolean; id?: string; published_at?: string }>;
+  getCurrentPublishedReport(): Promise<PublishedReport | null>;
+  listReportViewers(reportId: string): Promise<ReportViewer[]>;
+  listCloudPlayers(): Promise<CloudPlayer[]>;
+  createPlayerAccount(params: { email: string; firstName: string; lastName: string }): Promise<{ email: string; password: string }>;
+
+  listPlays(teamId?: number | null): Promise<PlaybookEntry[]>;
+  getPlay(playId: number): Promise<PlaybookPlay | null>;
+  savePlay(params: { id?: number | null; teamId?: number | null; name: string; data: PlayData }): Promise<{ id: number }>;
+  deletePlay(playId: number): Promise<{ deleted: boolean }>;
 
   listLeagues(): Promise<League[]>;
   createLeague(league: { name: string; country?: string; tier?: string }): Promise<number>;
@@ -563,19 +889,18 @@ export interface BoxscoreApi {
   updateProfile(profile: SignupProfile): Promise<void>;
   changePassword(newPassword: string): Promise<void>;
 
-  getBaseSubscription(): Promise<BaseSubscription>;
-  cancelBaseSubscription(): Promise<void>;
-  getUploadStatus(): Promise<UploadStatus>;
-  cancelUploadSubscription(): Promise<void>;
-  listUploadPlans(): Promise<UploadPlan[]>;
+  getSubscriptionTier(): Promise<AccountSubscription>;
+  cancelSubscription(): Promise<void>;
 
-  checkout(
-    params:
-      | { kind: 'base'; tier: 'individual' | 'team'; interval: 'month' | 'year'; seatCount?: number }
-      | { kind: 'upload'; planId: string }
-  ): Promise<void>;
+  checkout(params: { tier: Tier }): Promise<void>;
   openBillingPortal(): Promise<void>;
   onCheckoutReturn(callback: (status: string | null) => void): () => void;
+  pullCloudData(): Promise<{ pulled: number }>;
+
+  adminCreateAccount(params: CreateAccountParams): Promise<{ email: string; password: string; organizationId: string }>;
+  adminListOrganizations(): Promise<AdminOrganizationRow[]>;
+  adminUpdateOrganization(params: { organizationId: string; tier?: Tier; defaultTeamId?: number | null }): Promise<void>;
+  adminListSyncableTeams(): Promise<AdminSyncableTeam[]>;
 
   exportExcel(
     payload: ExtractedBoxScore | StatSummary,

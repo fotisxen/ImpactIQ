@@ -19,17 +19,18 @@ Deno.serve(async (req) => {
 
     const { data: profile, error: profileErr } = await supabase
       .from('profiles')
-      .select('stripe_customer_id')
+      .select('organizations(stripe_customer_id)')
       .eq('id', user.id)
       .single();
     if (profileErr) throw new Error(profileErr.message);
-    if (!profile.stripe_customer_id) {
+    const org = profile.organizations as unknown as { stripe_customer_id: string | null } | null;
+    if (!org?.stripe_customer_id) {
       throw new Error("You don't have a billing account yet — subscribe to a plan first.");
     }
 
     const stripe = getStripeClient();
     const session = await stripe.billingPortal.sessions.create({
-      customer: profile.stripe_customer_id,
+      customer: org.stripe_customer_id,
       return_url: 'boxscore-analytics://checkout?status=portal-closed',
     });
 

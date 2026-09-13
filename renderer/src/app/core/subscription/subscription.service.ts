@@ -1,44 +1,59 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { ToastService } from '../../shared/services/toast.service';
-import type { BaseSubscription, UploadPlan, UploadStatus } from '../models/box-score.model';
+import type { AccountSubscription, Tier } from '../models/box-score.model';
 
-export type CheckoutParams =
-  | { kind: 'base'; tier: 'individual' | 'team'; interval: 'month' | 'year'; seatCount?: number }
-  | { kind: 'upload'; planId: string };
+export type CheckoutParams = { tier: Tier };
 
 /**
- * Single source of truth for "does this account have an active
- * subscription" — read by the app-wide subscription gate (blocks
- * everything except guest mode) and the Upload a Photo page's own gate
- * (blocks that one feature, guest mode included, since it's the paid-API
- * feature and the guest bypass was never meant to cover that).
+ * Single source of truth for what this account can do. Every subscription
+ * is an organization (club) purchase now — even a solo coach subscribes as
+ * an org of one — and the tier (manual/photo/pro) drives every feature
+ * gate: the app-wide gate (blocks everything except guest mode), the
+ * Upload Photo route (Photo tier only, guest mode does NOT bypass this one
+ * since it's the paid-API feature), and Manual Entry/Import PBP (blocked
+ * for Pro, which is read-only).
  */
 @Injectable({ providedIn: 'root' })
 export class SubscriptionService {
   private readonly toast = inject(ToastService);
 
-  readonly baseSubscription = signal<BaseSubscription | null>(null);
-  readonly uploadStatus = signal<UploadStatus | null>(null);
-  readonly uploadPlans = signal<UploadPlan[]>([]);
+  readonly subscription = signal<AccountSubscription | null>(null);
   readonly organizationId = signal<string | null>(null);
   readonly loading = signal(false);
 
-  /** null = not loaded yet, true = has access, false = blocked. */
+  /** null = not loaded yet, true = has access, false = blocked. The platform admin bypasses every gate — they're never meant to carry a subscription of their own. */
   readonly hasBaseAccess = computed<boolean | null>(() => {
-    const sub = this.baseSubscription();
+    const sub = this.subscription();
     if (!sub) return null;
+    if (sub.isPlatformAdmin) return true;
     if (sub.source === 'guest') return true;
     if (sub.source === 'none') return false;
     return sub.status === 'active' || sub.status === 'trialing';
   });
 
-  /** Guest mode does NOT bypass this one — it gates the paid Claude API call. */
-  readonly hasUploadAccess = computed<boolean | null>(() => {
-    const up = this.uploadStatus();
-    if (!up) return null;
-    if (up.source !== 'active') return false;
-    return up.status === 'active' || up.status === 'trialing';
+  readonly tier = computed<Tier | null>(() => this.subscription()?.tier ?? null);
+
+  /** Guest mode does NOT bypass this one — it gates the paid Claude API call. The platform admin does. */
+  readonly canUploadPhoto = computed<boolean | null>(() => {
+    const sub = this.subscription();
+    if (!sub) return null;
+    if (sub.isPlatformAdmin) return true;
+    if (sub.source === 'guest') return false;
+    return this.hasBaseAccess() === true && this.tier() === 'photo';
   });
+
+  readonly canManualEntry = computed<boolean | null>(() => {
+    const sub = this.subscription();
+    if (!sub) return null;
+    if (sub.isPlatformAdmin) return true;
+    if (sub.source === 'guest') return true;
+    return this.hasBaseAccess() === true && (this.tier() === 'manual' || this.tier() === 'photo');
+  });
+
+  readonly isProReadOnly = computed<boolean>(() => this.hasBaseAccess() === true && this.tier() === 'pro');
+
+  /** The one account (the app owner) allowed to provision accounts/orgs/tiers outside of Stripe — see the Admin page. */
+  readonly isPlatformAdmin = computed<boolean>(() => this.subscription()?.isPlatformAdmin ?? false);
 
   private initialized = false;
   private deepLinkUnsubscribe: (() => void) | null = null;
@@ -64,24 +79,23 @@ export class SubscriptionService {
     this.deepLinkUnsubscribe?.();
     this.deepLinkUnsubscribe = null;
     this.stopPolling();
-    this.baseSubscription.set(null);
-    this.uploadStatus.set(null);
+    this.subscription.set(null);
     this.organizationId.set(null);
   }
 
   async refreshAll(): Promise<void> {
     this.loading.set(true);
     try {
-      const [base, upload, plans, profile] = await Promise.all([
-        window.boxscoreApi.getBaseSubscription(),
-        window.boxscoreApi.getUploadStatus(),
-        window.boxscoreApi.listUploadPlans(),
-        window.boxscoreApi.getProfile(),
-      ]);
-      this.baseSubscription.set(base);
-      this.uploadStatus.set(upload);
-      this.uploadPlans.set(plans);
+      const [sub, profile] = await Promise.all([window.boxscoreApi.getSubscriptionTier(), window.boxscoreApi.getProfile()]);
+      this.subscription.set(sub);
       this.organizationId.set(profile?.organization_id ?? null);
+      if (sub.source !== 'guest' && (sub.status === 'active' || sub.status === 'trialing')) {
+        // Fire-and-forget mirror sync — pulls whatever this account's
+        // tier/org currently entitles it to see into the local cache. Not
+        // awaited: it shouldn't block the UI from showing what's already
+        // there, and failures here are non-fatal (next refresh retries).
+        void window.boxscoreApi.pullCloudData().catch(() => {});
+      }
     } catch (err) {
       this.toast.error(err instanceof Error ? err.message : 'Failed to load subscription status.');
     } finally {
@@ -102,7 +116,7 @@ export class SubscriptionService {
     const startedAt = Date.now();
     const maxDurationMs = 3 * 60 * 1000;
     this.pollHandle = setInterval(() => {
-      if (this.hasBaseAccess() === true || this.hasUploadAccess() === true || Date.now() - startedAt > maxDurationMs) {
+      if (this.hasBaseAccess() === true || Date.now() - startedAt > maxDurationMs) {
         this.stopPolling();
         return;
       }
@@ -120,7 +134,7 @@ export class SubscriptionService {
   /** Manual escape hatch for the "I've already paid" button in the gate UI. */
   async refreshNow(): Promise<void> {
     await this.refreshAll();
-    if (this.hasBaseAccess() !== true && this.hasUploadAccess() !== true) {
+    if (this.hasBaseAccess() !== true) {
       this.toast.error("Still not seeing it — Stripe may need a few more seconds. Try again shortly.");
     }
   }
@@ -146,16 +160,16 @@ export class SubscriptionService {
   }
 
   /**
-   * Team checkout needs an organization to attach the subscription to.
-   * If the caller isn't on one yet, creates one first (using `newTeamName`)
-   * before starting checkout — the single place this happens, so the gate
-   * modal and the Account page can't drift out of sync on this logic again.
+   * Every tier is an org purchase — if the caller isn't on a club yet,
+   * creates one first (using `newOrgName`) before starting checkout, the
+   * single place this happens so the gate modal and the Account page can't
+   * drift out of sync on this logic again.
    */
-  async subscribeTeam(interval: 'month' | 'year', seatCount: number, newTeamName?: string): Promise<void> {
+  async subscribeOrg(tier: Tier, newOrgName?: string): Promise<void> {
     if (!this.organizationId()) {
-      const name = (newTeamName ?? '').trim();
+      const name = (newOrgName ?? '').trim();
       if (!name) {
-        this.toast.error('Give your team a name first.');
+        this.toast.error('Give your club a name first.');
         return;
       }
       try {
@@ -163,11 +177,11 @@ export class SubscriptionService {
         const profile = await window.boxscoreApi.getProfile();
         this.organizationId.set(profile?.organization_id ?? null);
       } catch (err) {
-        this.toast.error(err instanceof Error ? err.message : 'Failed to create team.');
+        this.toast.error(err instanceof Error ? err.message : 'Failed to create club.');
         return;
       }
     }
-    await this.checkout({ kind: 'base', tier: 'team', interval, seatCount });
+    await this.checkout({ tier });
   }
 
   async openBillingPortal(): Promise<void> {
@@ -178,23 +192,13 @@ export class SubscriptionService {
     }
   }
 
-  async cancelBase(): Promise<void> {
+  async cancel(): Promise<void> {
     try {
-      await window.boxscoreApi.cancelBaseSubscription();
+      await window.boxscoreApi.cancelSubscription();
       this.toast.success('Subscription set to cancel at period end.');
       await this.refreshAll();
     } catch (err) {
       this.toast.error(err instanceof Error ? err.message : 'Failed to cancel subscription.');
-    }
-  }
-
-  async cancelUpload(): Promise<void> {
-    try {
-      await window.boxscoreApi.cancelUploadSubscription();
-      this.toast.success('Upload add-on set to cancel at period end.');
-      await this.refreshAll();
-    } catch (err) {
-      this.toast.error(err instanceof Error ? err.message : 'Failed to cancel add-on.');
     }
   }
 }

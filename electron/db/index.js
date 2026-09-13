@@ -43,6 +43,37 @@ function migrate(db) {
   if (!playerColumns.has('position')) {
     db.exec(`ALTER TABLE players ADD COLUMN position TEXT`);
   }
+  if (!playerColumns.has('depth_rank')) {
+    db.exec(`ALTER TABLE players ADD COLUMN depth_rank INTEGER`);
+  }
+  if (!playerColumns.has('height')) {
+    db.exec(`ALTER TABLE players ADD COLUMN height TEXT`);
+  }
+  if (!playerColumns.has('hidden')) {
+    db.exec(`ALTER TABLE players ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  // Cloud sync (Manual/Photo tier push, Pro tier pull — see services/dataSync.js):
+  // pending_sync/synced_at track a local game's push status; sync_map bridges
+  // this install's autoincrement ids to the matching Supabase row ids, since
+  // the two are independent id spaces (natural-key lookup-or-create can't
+  // reuse local ids as remote ones).
+  const gameColumns = new Set(db.prepare(`PRAGMA table_info(games)`).all().map((c) => c.name));
+  if (!gameColumns.has('pending_sync')) {
+    db.exec(`ALTER TABLE games ADD COLUMN pending_sync INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!gameColumns.has('synced_at')) {
+    db.exec(`ALTER TABLE games ADD COLUMN synced_at TEXT`);
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sync_map (
+      entity_type TEXT NOT NULL,
+      local_id INTEGER NOT NULL,
+      remote_id TEXT NOT NULL,
+      PRIMARY KEY (entity_type, local_id)
+    )
+  `);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_map_remote ON sync_map(entity_type, remote_id)`);
 
   // 'Dubai Basketball' was mistakenly seeded into the ABA League as well as
   // EuroLeague (it only actually plays in EuroLeague), which made team-name

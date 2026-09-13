@@ -36,13 +36,11 @@ function ftPct(row) {
  * PIR — the EuroLeague/FIBA "Performance Index Rating".
  * (PTS + REB + AST + STL + BLK + FoulsDrawn)
  *  − (MissedFG + MissedFT + TOV + Fouls Committed + BlocksAgainst)
- * We don't track "fouls drawn" or "blocked against" from a standard box
- * score, so this is the commonly-used simplified version.
  */
 function pir(row) {
-  const positive = row.pts + row.oreb + row.dreb + row.ast + row.stl + row.blk;
+  const positive = row.pts + row.oreb + row.dreb + row.ast + row.stl + row.blk + row.pfd;
   const negative =
-    (row.fga - row.fgm) + (row.fta - row.ftm) + row.tov + row.pf;
+    (row.fga - row.fgm) + (row.fta - row.ftm) + row.tov + row.pf + row.srj;
   return positive - negative;
 }
 
@@ -308,6 +306,19 @@ function pacePerGame(totals, games) {
 }
 
 /**
+ * Pythagorean win % — expected win rate from points scored/allowed alone,
+ * the standard basketball exponent (13.91, the commonly-cited Morey/Hollinger
+ * value). Returns null when there's nothing to compute from.
+ */
+function pythagoreanWinPct(ptsFor, ptsAgainst) {
+  if (ptsFor <= 0 && ptsAgainst <= 0) return null;
+  const exp = 13.91;
+  const forExp = Math.pow(ptsFor, exp);
+  const againstExp = Math.pow(ptsAgainst, exp);
+  return safeDiv(forExp, forExp + againstExp);
+}
+
+/**
  * Hollinger's unadjusted PER (uPER), before pace adjustment/normalization.
  * `playerTotals`/`teamTotals`/`leagueTotals` are all summed rows (see
  * sumRows) — team totals supply the team-assist factor, league totals
@@ -436,6 +447,8 @@ module.exports = {
   per,
   impactScore,
   estimatePossessions,
+  pacePerGame,
+  pythagoreanWinPct,
   reboundingStatLine,
   ballHandlingStatLine,
   pie,

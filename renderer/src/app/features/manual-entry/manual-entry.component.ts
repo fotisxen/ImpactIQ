@@ -166,6 +166,7 @@ export class ManualEntryComponent {
       date: boxScore.date,
       players: boxScore.players,
       opponentPlayers: boxScore.opponentPlayers,
+      source: 'manual',
     });
 
     this.toast.success(`Saved ${teamName} vs ${opponentName}.`);

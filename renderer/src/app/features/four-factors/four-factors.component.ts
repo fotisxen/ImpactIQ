@@ -14,8 +14,6 @@ import { StatTileComponent } from '../../shared/components/stat-tile.component';
 import { ToastService } from '../../shared/services/toast.service';
 import { formatPlayerName } from '../../shared/utils/format-player-name';
 
-const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
-
 @Component({
   selector: 'app-four-factors',
   standalone: true,
@@ -86,6 +84,7 @@ const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
           @if (lineupCombosMetric(); as lc) {
             <div class="sub-block">
               <h5>Lineup Combinations</h5>
+              <p class="hint">MIN = real clock-time this exact 5-player group shared the floor together, uninterrupted by any substitution — summed across every play-by-play game this season.</p>
               @if (lc.available && lc.lineups && lc.lineups.length > 0) {
                 <div class="table-scroll">
                   <table class="log-table">
@@ -109,34 +108,6 @@ const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
             </div>
           }
 
-          <div class="sub-block">
-            <h5>Positions</h5>
-            <p class="hint">Optional, manual — nobody tracks this automatically. Set once per player.</p>
-            <div class="roster-position-grid">
-              @for (p of r.roster; track p.playerId) {
-                <label class="field">
-                  <span class="field-label">{{ p.playerName }}</span>
-                  <select (change)="onPositionChange(p.playerId, $event)">
-                    <option value="" [selected]="!p.position">—</option>
-                    @for (pos of positions; track pos) {
-                      <option [value]="pos" [selected]="pos === p.position">{{ pos }}</option>
-                    }
-                  </select>
-                </label>
-              }
-            </div>
-          </div>
-        </div>
-
-        <div class="stat-category">
-          <h4>Strategic Metrics <span class="hint">— why it may have happened</span></h4>
-          <div class="tile-grid">
-            @for (m of r.strategicMetrics; track m.label) {
-              <div class="tile-wrap na" [title]="m.reason ?? ''">
-                <app-stat-tile [label]="m.label" value="N/A" />
-              </div>
-            }
-          </div>
         </div>
 
         <div class="combo-row">
@@ -325,8 +296,6 @@ export class FourFactorsComponent {
   private readonly entities = inject(EntitiesService);
   private readonly toast = inject(ToastService);
 
-  protected readonly positions = POSITIONS;
-
   protected readonly leagues = signal<League[]>([]);
   protected readonly teams = signal<Team[]>([]);
   protected readonly seasons = signal<Season[]>([]);
@@ -411,22 +380,6 @@ export class FourFactorsComponent {
       this.toast.error(err instanceof Error ? err.message : 'Failed to load the Four Factors report.');
     } finally {
       this.loading.set(false);
-    }
-  }
-
-  protected async onPositionChange(playerId: number, event: Event): Promise<void> {
-    const value = (event.target as HTMLSelectElement).value || null;
-    try {
-      await window.boxscoreApi.updatePlayerPosition(playerId, value);
-      const r = this.report();
-      if (r) {
-        this.report.set({
-          ...r,
-          roster: r.roster.map((p) => (p.playerId === playerId ? { ...p, position: value } : p)),
-        });
-      }
-    } catch (err) {
-      this.toast.error(err instanceof Error ? err.message : 'Failed to save the position.');
     }
   }
 

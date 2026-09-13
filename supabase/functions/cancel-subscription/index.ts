@@ -8,8 +8,6 @@ import { corsHeaders } from '../_shared/cors.ts';
 import { getStripeClient } from '../_shared/stripe.ts';
 import { getUserScopedClient } from '../_shared/supabaseClients.ts';
 
-type Body = { kind: 'base' | 'upload' };
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -21,28 +19,27 @@ Deno.serve(async (req) => {
     } = await supabase.auth.getUser();
     if (userErr || !user) throw new Error('Not authenticated.');
 
-    const { kind } = (await req.json()) as Body;
-    const table = kind === 'base' ? 'subscriptions' : 'upload_subscriptions';
+    const { data: profile, error: profileErr } = await supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', user.id)
+      .single();
+    if (profileErr) throw new Error(profileErr.message);
+    if (!profile.organization_id) throw new Error('No club/subscription found.');
 
-    const query =
-      kind === 'base'
-        ? supabase.from('subscriptions').select('stripe_subscription_id').eq('owner_type', 'user').eq('user_id', user.id)
-        : supabase.from('upload_subscriptions').select('stripe_subscription_id').eq('user_id', user.id);
-
-    const { data: row, error: rowErr } = await query.maybeSingle();
+    const { data: row, error: rowErr } = await supabase
+      .from('subscriptions')
+      .select('stripe_subscription_id')
+      .eq('owner_type', 'organization')
+      .eq('organization_id', profile.organization_id)
+      .maybeSingle();
     if (rowErr) throw new Error(rowErr.message);
-    if (!row?.stripe_subscription_id) {
-      throw new Error(
-        kind === 'base'
-          ? "No individual subscription found — team subscriptions are canceled by your club, not here."
-          : 'No upload add-on subscription found.'
-      );
-    }
+    if (!row?.stripe_subscription_id) throw new Error('No active subscription found for your club.');
 
     const stripe = getStripeClient();
     await stripe.subscriptions.update(row.stripe_subscription_id, { cancel_at_period_end: true });
 
-    return new Response(JSON.stringify({ ok: true, table }), {
+    return new Response(JSON.stringify({ ok: true }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (err) {

@@ -34,12 +34,21 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   getGameInsights: (gameId) => ipcRenderer.invoke('db:get-game-insights', gameId),
   getTeamScoutingReport: (teamId) => ipcRenderer.invoke('db:get-team-scouting-report', teamId),
   getPlayerScoutingReport: (playerId) => ipcRenderer.invoke('db:get-player-scouting-report', playerId),
+  getTeamScoutingReportAllCompetitions: (teamName) =>
+    ipcRenderer.invoke('db:get-team-scouting-report-all-competitions', teamName),
+  getPlayerScoutingReportAllCompetitions: (playerName, teamName) =>
+    ipcRenderer.invoke('db:get-player-scouting-report-all-competitions', playerName, teamName),
   getTeamAllCompetitions: (teamId) => ipcRenderer.invoke('db:get-team-all-competitions', teamId),
   getPlayerAllCompetitions: (playerId) =>
     ipcRenderer.invoke('db:get-player-all-competitions', playerId),
   listTeams: () => ipcRenderer.invoke('db:list-teams'),
   getFavoriteTeam: () => ipcRenderer.invoke('db:get-favorite-team'),
   setFavoriteTeam: (teamId) => ipcRenderer.invoke('db:set-favorite-team', teamId),
+  importShotZones: (params) => ipcRenderer.invoke('db:import-shot-zones', params),
+  getTeamShotZones: (teamId, seasonId) => ipcRenderer.invoke('db:get-team-shot-zones', teamId, seasonId),
+  getPlayerShotZones: (playerId, seasonId) => ipcRenderer.invoke('db:get-player-shot-zones', playerId, seasonId),
+  getTeamShotEvents: (teamId, seasonId) => ipcRenderer.invoke('db:get-team-shot-events', teamId, seasonId),
+  getPlayerShotEvents: (playerId, seasonId) => ipcRenderer.invoke('db:get-player-shot-events', playerId, seasonId),
   listPlayers: (teamId) => ipcRenderer.invoke('db:list-players', teamId),
   listAllPlayers: () => ipcRenderer.invoke('db:list-all-players'),
 
@@ -85,16 +94,25 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
   updateProfile: (profile) => ipcRenderer.invoke('account:update-profile', profile),
   changePassword: (newPassword) => ipcRenderer.invoke('account:change-password', newPassword),
 
-  // Base app subscription (individual/team) + the separate Upload a Photo add-on.
-  getBaseSubscription: () => ipcRenderer.invoke('subscription:get-base'),
-  cancelBaseSubscription: () => ipcRenderer.invoke('subscription:cancel-base'),
-  getUploadStatus: () => ipcRenderer.invoke('subscription:get-upload-status'),
-  cancelUploadSubscription: () => ipcRenderer.invoke('subscription:cancel-upload'),
-  listUploadPlans: () => ipcRenderer.invoke('subscription:list-upload-plans'),
+  // The org's annual subscription (manual/photo/pro tier).
+  getSubscriptionTier: () => ipcRenderer.invoke('subscription:get-tier'),
+  cancelSubscription: () => ipcRenderer.invoke('subscription:cancel'),
 
   // Opens Stripe Checkout / the Billing Portal in the system browser.
   checkout: (params) => ipcRenderer.invoke('subscription:checkout', params),
   openBillingPortal: () => ipcRenderer.invoke('subscription:open-portal'),
+
+  // Pulls whatever games this account's tier/org currently entitles it to
+  // see (RLS-filtered) into the local cache — see services/dataSync.js.
+  pullCloudData: () => ipcRenderer.invoke('sync:pull-cloud-data'),
+
+  // Owner-only provisioning (no Stripe) — see services/admin.js. Every
+  // call is also re-checked server-side (requirePlatformAdmin), so hiding
+  // the Admin page in the UI isn't the only thing stopping a non-admin.
+  adminCreateAccount: (params) => ipcRenderer.invoke('admin:create-account', params),
+  adminListOrganizations: () => ipcRenderer.invoke('admin:list-organizations'),
+  adminUpdateOrganization: (params) => ipcRenderer.invoke('admin:update-organization', params),
+  adminListSyncableTeams: () => ipcRenderer.invoke('admin:list-syncable-teams'),
 
   // Fires when the user completes (or cancels) a Stripe flow and is routed
   // back to the app via a boxscore-analytics:// deep link — see main.js.
@@ -123,4 +141,30 @@ contextBridge.exposeInMainWorld('boxscoreApi', {
     ipcRenderer.invoke('db:get-team-four-factors-report', teamId, seasonId),
   updatePlayerPosition: (playerId, position) =>
     ipcRenderer.invoke('db:update-player-position', playerId, position),
+  updatePlayerDepthRank: (playerId, depthRank) =>
+    ipcRenderer.invoke('db:update-player-depth-rank', playerId, depthRank),
+  updatePlayerHeight: (playerId, height) => ipcRenderer.invoke('db:update-player-height', playerId, height),
+  updatePlayerHidden: (playerId, hidden) => ipcRenderer.invoke('db:update-player-hidden', playerId, hidden),
+
+  getScoutingReport: (ourTeamId, opponentTeamId, seasonId, gameDate) =>
+    ipcRenderer.invoke('db:get-scouting-report', ourTeamId, opponentTeamId, seasonId, gameDate),
+  getOrCreateScoutingReportRecord: (params) =>
+    ipcRenderer.invoke('db:get-or-create-scouting-report-record', params),
+  saveScoutingReportKeys: (reportId, keys) => ipcRenderer.invoke('db:save-scouting-report-keys', reportId, keys),
+  getScoutingReportPlayerNotes: (reportId) => ipcRenderer.invoke('db:get-scouting-report-player-notes', reportId),
+  saveScoutingReportPlayerNotes: (reportId, playerId, notes) =>
+    ipcRenderer.invoke('db:save-scouting-report-player-notes', reportId, playerId, notes),
+  saveScoutingReportPlayerPhoto: (reportId, playerId, photoDataUrl) =>
+    ipcRenderer.invoke('db:save-scouting-report-player-photo', reportId, playerId, photoDataUrl),
+  exportScoutingReportPdf: (params) => ipcRenderer.invoke('export:scouting-report-pdf', params),
+  publishScoutingReport: (params) => ipcRenderer.invoke('publish:scouting-report', params),
+  getCurrentPublishedReport: () => ipcRenderer.invoke('cloud:get-current-published-report'),
+  listReportViewers: (reportId) => ipcRenderer.invoke('cloud:list-report-viewers', reportId),
+  listCloudPlayers: () => ipcRenderer.invoke('cloud:list-players'),
+  createPlayerAccount: (params) => ipcRenderer.invoke('cloud:create-player-account', params),
+
+  listPlays: (teamId) => ipcRenderer.invoke('db:list-plays', teamId),
+  getPlay: (playId) => ipcRenderer.invoke('db:get-play', playId),
+  savePlay: (params) => ipcRenderer.invoke('db:save-play', params),
+  deletePlay: (playId) => ipcRenderer.invoke('db:delete-play', playId),
 });

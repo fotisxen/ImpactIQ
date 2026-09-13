@@ -166,6 +166,32 @@ const LEAGUES = [
       'Niners Chemnitz', 'Ratiopharm Ulm', 'JL Bourg', 'London Lions', 'Budućnost', 'Panionios',
     ],
   },
+  {
+    name: 'Basketball Champions League',
+    country: 'Europe',
+    tier: 'bcl',
+    teams: [
+      'Rytas', 'MLP Academics Heidelberg', 'Promitheas Patras', 'Legia Warszawa',
+      'Alba Berlin', 'Élan Chalon', 'ERA Nymburk', 'Sabah', 'Joventut Badalona', 'Cholet',
+      'Hapoel Netanel Holon', 'Bursaspor', 'La Laguna Tenerife', 'Bnei Herzliya', 'VEF Rīga',
+      'Unicaja', 'Karditsa', 'Trapani Shark', 'Tofaş', 'Pallacanestro Trieste',
+      'Dreamland Gran Canaria', 'Mersin', 'Benfica', 'Galatasaray', 'Filou Oostende',
+      'Spartak', 'Würzburg Baskets', 'Igokea', 'Le Mans', 'AEK', 'NHSZ-Szolnoki',
+    ],
+  },
+  {
+    name: 'FIBA Europe Cup',
+    country: 'Europe',
+    tier: 'fiba_europe_cup',
+    teams: [
+      'Surne Bilbao Basket', 'Pallacanestro Reggiana', 'Cedevita Junior', 'UCAM Murcia',
+      'Dinamo Sassari', 'Bakken Bears', 'Casademont Zaragoza', 'Start Lublin', 'JDA Dijon',
+      'Petrolina AEK Larnaca', 'Trefl Sopot', 'Kutaisi 2010', 'Keravnos', 'Porto',
+      'Falco Szombathely', 'Kalev/Cramo', 'Sporting CP', 'Petkim Spor', 'Tartu',
+      'CSM Oradea', 'Trepça', 'Löwen Braunschweig', 'Vâlcea 1924', 'Pelister',
+      'Rostock Seawolves', 'Neftçi', 'PAOK', 'Windrose Antwerp', 'Peristeri', 'Rilski Sportist',
+    ],
+  },
 
   // National cup competitions — one per country, alongside that country's
   // league(s) above. Participant lists mirror each country's top-flight

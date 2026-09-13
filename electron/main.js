@@ -6,6 +6,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const { registerIpcHandlers } = require('./ipc');
 const { initDb } = require('./db');
+const { retryPendingSyncs } = require('./services/dataSync');
 
 const DEEP_LINK_PROTOCOL = 'boxscore-analytics';
 
@@ -94,6 +95,7 @@ if (!gotLock) {
     const db = initDb();
     createWindow();
     registerIpcHandlers(db, mainWindow);
+    retryPendingSyncs(db).catch((err) => console.error('retryPendingSyncs failed:', err));
 
     const coldStartLink = extractDeepLink(process.argv);
     if (coldStartLink) mainWindow.webContents.once('did-finish-load', () => handleDeepLink(coldStartLink));

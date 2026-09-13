@@ -130,18 +130,31 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
             class="search-input"
           />
           <div class="result-list">
-            @for (t of filteredTeams(); track t.id) {
-              <button
-                type="button"
-                class="result-row"
-                [class.active]="t.id === selectedTeamId()"
-                (click)="selectTeam(t.id)"
-              >
-                <span class="result-title">{{ t.name }}</span>
-                @if (t.league_name) {
-                  <span class="result-meta">{{ t.league_name }}</span>
-                }
-              </button>
+            @for (group of filteredTeamGroups(); track group.name) {
+              @if (group.teams.length > 1) {
+                <button
+                  type="button"
+                  class="result-row"
+                  [class.active]="selectedTeamAllName() === group.name"
+                  (click)="selectTeamAllCompetitions(group.name)"
+                >
+                  <span class="result-title">{{ group.name }}</span>
+                  <span class="result-meta">All competitions ({{ group.teams.length }} leagues)</span>
+                </button>
+              }
+              @for (t of group.teams; track t.id) {
+                <button
+                  type="button"
+                  class="result-row"
+                  [class.active]="t.id === selectedTeamId()"
+                  (click)="selectTeam(t.id)"
+                >
+                  <span class="result-title">{{ t.name }}</span>
+                  @if (t.league_name) {
+                    <span class="result-meta">{{ t.league_name }}</span>
+                  }
+                </button>
+              }
             } @empty {
               <p class="hint">No teams yet.</p>
             }
@@ -200,7 +213,7 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
               }
             </div>
           </div>
-        } @else if (selectedTeamId() !== null && !loading()) {
+        } @else if ((selectedTeamId() !== null || selectedTeamAllName() !== null) && !loading()) {
           <p class="hint">Not enough games saved for this team yet.</p>
         }
       }
@@ -215,16 +228,29 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
             class="search-input"
           />
           <div class="result-list">
-            @for (p of filteredPlayers(); track p.id) {
-              <button
-                type="button"
-                class="result-row"
-                [class.active]="p.id === selectedPlayerId()"
-                (click)="selectPlayer(p.id)"
-              >
-                <span class="result-title">{{ p.name }}</span>
-                <span class="result-meta">{{ p.teamName }}</span>
-              </button>
+            @for (group of filteredPlayerGroups(); track group.key) {
+              @if (group.players.length > 1) {
+                <button
+                  type="button"
+                  class="result-row"
+                  [class.active]="selectedPlayerAllKey() === group.key"
+                  (click)="selectPlayerAllCompetitions(group.players[0].name, group.players[0].teamName)"
+                >
+                  <span class="result-title">{{ group.players[0].name }}</span>
+                  <span class="result-meta">All competitions ({{ group.players.length }} leagues)</span>
+                </button>
+              }
+              @for (p of group.players; track p.id) {
+                <button
+                  type="button"
+                  class="result-row"
+                  [class.active]="p.id === selectedPlayerId()"
+                  (click)="selectPlayer(p.id)"
+                >
+                  <span class="result-title">{{ p.name }}</span>
+                  <span class="result-meta">{{ p.teamName }}</span>
+                </button>
+              }
             } @empty {
               <p class="hint">No players yet.</p>
             }
@@ -267,7 +293,9 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
               @for (i of r.winVsLossInsights; track i.text) {
                 <p class="insight-line">{{ i.text }}</p>
               } @empty {
-                <p class="hint">Not enough wins and losses yet to compare.</p>
+                <p class="hint">
+                  {{ r.hasEnoughWinLossGames ? 'No clear pattern between wins and losses yet.' : 'Not enough wins and losses yet to compare.' }}
+                </p>
               }
             </div>
 
@@ -286,7 +314,7 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
               }
             </div>
           </div>
-        } @else if (selectedPlayerId() !== null && !loading()) {
+        } @else if ((selectedPlayerId() !== null || selectedPlayerAllKey() !== null) && !loading()) {
           <p class="hint">Not enough games saved for this player yet.</p>
         }
       }
@@ -448,6 +476,7 @@ export class GameInsightsComponent implements OnInit {
   protected readonly teamSearch = signal('');
   protected readonly teams = signal<Team[]>([]);
   protected readonly selectedTeamId = signal<number | null>(null);
+  protected readonly selectedTeamAllName = signal<string | null>(null);
   protected readonly teamReport = signal<TeamScoutingReport | null>(null);
   protected readonly filteredTeams = computed(() => {
     const q = this.teamSearch().trim().toLowerCase();
@@ -455,17 +484,37 @@ export class GameInsightsComponent implements OnInit {
     if (!q) return all;
     return all.filter((t) => t.name.toLowerCase().includes(q));
   });
+  /** Teams grouped by name, so a club playing in multiple leagues gets one "All competitions" entry above its per-league rows. */
+  protected readonly filteredTeamGroups = computed(() => {
+    const byName = new Map<string, Team[]>();
+    for (const t of this.filteredTeams()) {
+      if (!byName.has(t.name)) byName.set(t.name, []);
+      byName.get(t.name)!.push(t);
+    }
+    return [...byName.entries()].map(([name, teams]) => ({ name, teams }));
+  });
 
   // By player
   protected readonly playerSearch = signal('');
   protected readonly players = signal<PlayerListEntry[]>([]);
   protected readonly selectedPlayerId = signal<number | null>(null);
+  protected readonly selectedPlayerAllKey = signal<string | null>(null);
   protected readonly playerReport = signal<PlayerScoutingReport | null>(null);
   protected readonly filteredPlayers = computed(() => {
     const q = this.playerSearch().trim().toLowerCase();
     const all = this.players();
     if (!q) return all;
     return all.filter((p) => p.name.toLowerCase().includes(q));
+  });
+  /** Players grouped by (name, team name), so a player appearing under multiple leagues/cups for the same club gets one "All competitions" entry. */
+  protected readonly filteredPlayerGroups = computed(() => {
+    const byKey = new Map<string, PlayerListEntry[]>();
+    for (const p of this.filteredPlayers()) {
+      const key = `${p.name}::${p.teamName}`;
+      if (!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key)!.push(p);
+    }
+    return [...byKey.entries()].map(([key, players]) => ({ key, players }));
   });
 
   async ngOnInit(): Promise<void> {
@@ -504,6 +553,7 @@ export class GameInsightsComponent implements OnInit {
 
   protected async selectTeam(teamId: number): Promise<void> {
     this.selectedTeamId.set(teamId);
+    this.selectedTeamAllName.set(null);
     this.teamReport.set(null);
     this.loading.set(true);
     try {
@@ -515,14 +565,43 @@ export class GameInsightsComponent implements OnInit {
     }
   }
 
+  protected async selectTeamAllCompetitions(teamName: string): Promise<void> {
+    this.selectedTeamAllName.set(teamName);
+    this.selectedTeamId.set(null);
+    this.teamReport.set(null);
+    this.loading.set(true);
+    try {
+      this.teamReport.set(await window.boxscoreApi.getTeamScoutingReportAllCompetitions(teamName));
+    } catch (err) {
+      this.toast.error(err instanceof Error ? err.message : 'Failed to load the combined team report.');
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
   protected async selectPlayer(playerId: number): Promise<void> {
     this.selectedPlayerId.set(playerId);
+    this.selectedPlayerAllKey.set(null);
     this.playerReport.set(null);
     this.loading.set(true);
     try {
       this.playerReport.set(await window.boxscoreApi.getPlayerScoutingReport(playerId));
     } catch (err) {
       this.toast.error(err instanceof Error ? err.message : 'Failed to load the player report.');
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  protected async selectPlayerAllCompetitions(playerName: string, teamName: string): Promise<void> {
+    this.selectedPlayerAllKey.set(`${playerName}::${teamName}`);
+    this.selectedPlayerId.set(null);
+    this.playerReport.set(null);
+    this.loading.set(true);
+    try {
+      this.playerReport.set(await window.boxscoreApi.getPlayerScoutingReportAllCompetitions(playerName, teamName));
+    } catch (err) {
+      this.toast.error(err instanceof Error ? err.message : 'Failed to load the combined player report.');
     } finally {
       this.loading.set(false);
     }
