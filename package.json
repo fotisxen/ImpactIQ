@@ -43,6 +43,15 @@
       "provider": "github",
       "owner": "fotisxen",
       "repo": "ImpactIQ"
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.sports",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
     }
   }
 }

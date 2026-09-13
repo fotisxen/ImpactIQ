@@ -1,0 +1,71 @@
+name: Build desktop installers
+
+# Builds the Windows and macOS installers and attaches them to a GitHub
+# Release. electron-builder can't cross-compile a macOS build from Windows
+# (or vice versa), so this runs on a real runner of each OS.
+#
+# Trigger: push a version tag (e.g. `git tag v0.2.0 && git push origin v0.2.0`).
+# Can also be run manually from the Actions tab (workflow_dispatch) without
+# publishing, to sanity-check a build before tagging a real release.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install
+
+      - run: npm run renderer:build
+
+      # Only publishes to GitHub Releases on an actual tag push — a manual
+      # workflow_dispatch run just builds and uploads the installer as a
+      # workflow artifact instead, so you can test the build without
+      # cutting a release.
+      - name: Build and publish (tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing + notarization — leave these three repo
+          # secrets unset to produce an unsigned build (works, but macOS
+          # Gatekeeper will refuse to open it for most users without the
+          # `xattr -cr` workaround). Once there's an Apple Developer
+          # account, add these as repo Settings → Secrets and this step
+          # picks them up automatically, no other change needed:
+          #   CSC_LINK               — base64 (or file path) of the exported .p12 certificate
+          #   CSC_KEY_PASSWORD        — that .p12's export password
+          #   APPLE_ID                — the Apple ID email used for notarization
+          #   APPLE_APP_SPECIFIC_PASSWORD — an app-specific password for that Apple ID
+          #   APPLE_TEAM_ID            — the Apple Developer team ID
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Build only (manual run)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: npx electron-builder
+
+      - name: Upload build as workflow artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.dmg
+            dist-electron/*.zip
