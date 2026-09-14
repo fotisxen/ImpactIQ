@@ -83,6 +83,8 @@ const MODE_OPTIONS: SegmentOption<InsightsMode>[] = [
               [homeTeamName]="r.homeTeamName"
               [awayTeamName]="r.awayTeamName"
             />
+          } @else {
+            <p class="hint">Win probability isn't available for this game — it needs play-by-play data, which this game doesn't have.</p>
           }
 
           <div class="team-columns">

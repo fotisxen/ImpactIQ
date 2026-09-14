@@ -368,7 +368,7 @@ interface Rankable {
                   [diff]="netRatingDiff(summary)"
                   [diffAgainst]="diffLabel()"
                 />
-              } @else if (dash.mode() === 'player') {
+              } @else {
                 <app-stat-tile label="Net Rating" value="N/A" />
               }
             }
@@ -662,6 +662,8 @@ interface Rankable {
                   [diff]="netRatingDiff(summary)"
                   [diffAgainst]="diffLabel()"
                 />
+              } @else {
+                <app-stat-tile label="Net Rating" value="N/A" />
               }
             </div>
           }
