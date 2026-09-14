@@ -26,6 +26,7 @@ import { SubscriptionGateComponent } from '../../shared/components/subscription-
           @if (sub.canManualEntry() !== false) {
             <a routerLink="/import-pbp" routerLinkActive="active">Import Play-by-Play</a>
             <a routerLink="/manual-entry" routerLinkActive="active">Manual Entry</a>
+            <a routerLink="/shot-chart-entry" routerLinkActive="active">Shot Chart Entry</a>
           }
           <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
           <a routerLink="/game-insights" routerLinkActive="active">Insights</a>

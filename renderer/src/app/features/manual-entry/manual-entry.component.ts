@@ -20,7 +20,10 @@ import { ExtractedBoxScore } from '../../core/models/box-score.model';
     <section class="manual-entry-page">
       <header class="page-header">
         <h2>Enter a box score manually</h2>
-        <p class="hint">No photo needed. <a routerLink="/upload">Or upload a photo instead.</a></p>
+        <p class="hint">
+          No photo needed. <a routerLink="/upload">Or upload a photo instead.</a>
+          Got shot-location data for this game? <a routerLink="/shot-chart-entry">Add a shot chart.</a>
+        </p>
       </header>
 
       <app-game-context-picker #gameContext />

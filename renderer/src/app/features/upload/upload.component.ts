@@ -42,7 +42,10 @@ type RosterField = 'players' | 'opponentPlayers';
     <section class="upload-page">
       <header class="page-header">
         <h2>Upload a box score photo</h2>
-        <p class="hint"><a routerLink="/manual-entry">Prefer to enter stats manually instead?</a></p>
+        <p class="hint">
+          <a routerLink="/manual-entry">Prefer to enter stats manually instead?</a>
+          Got shot-location data for this game? <a routerLink="/shot-chart-entry">Add a shot chart.</a>
+        </p>
       </header>
 
       <div

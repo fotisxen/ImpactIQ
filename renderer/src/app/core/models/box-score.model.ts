@@ -161,6 +161,18 @@ export interface ShotZoneChart {
   chart: ShotZoneEntry[];
 }
 
+/** One manually-entered shot-chart row, tagged with names for display in the entry screen's running list. */
+export interface ShotZoneEntryRow {
+  id: number;
+  teamId: number;
+  teamName: string | null;
+  playerId: number | null;
+  playerName: string | null;
+  zone: ShotZoneKey;
+  fgm: number;
+  fga: number;
+}
+
 /** One individual shot attempt, already in the app's shared half-court coordinate space (0-300 wide, 0-320 deep, basket at 150,20). */
 export interface ShotEvent {
   x: number;
@@ -807,6 +819,20 @@ export interface BoxscoreApi {
   }): Promise<{ saved: boolean }>;
   getTeamShotZones(teamId: number, seasonId: number): Promise<ShotZoneChart>;
   getPlayerShotZones(playerId: number, seasonId: number): Promise<ShotZoneChart>;
+  saveShotZoneEntry(params: {
+    teamAId: number;
+    teamBId: number;
+    seasonId: number;
+    gameDate: string;
+    forTeamId: number;
+    playerId: number | null;
+    zone: ShotZoneKey;
+    fgm: number;
+    fga: number;
+  }): Promise<{ id: number; gameId: number }>;
+  listShotZoneEntriesForGame(gameId: number): Promise<ShotZoneEntryRow[]>;
+  deleteShotZoneEntry(id: number): Promise<{ deleted: boolean }>;
+  findGameByMatchup(params: { teamAId: number; teamBId: number; seasonId: number; gameDate: string }): Promise<number | null>;
   getTeamShotEvents(teamId: number, seasonId: number): Promise<ShotEvent[]>;
   getPlayerShotEvents(playerId: number, seasonId: number): Promise<ShotEvent[]>;
 

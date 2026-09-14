@@ -42,6 +42,14 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'shot-chart-entry',
+        canActivate: [entryTierGuard],
+        loadComponent: () =>
+          import('./features/shot-chart-entry/shot-chart-entry.component').then(
+            (m) => m.ShotChartEntryComponent
+          ),
+      },
+      {
         path: 'dashboard',
         loadComponent: () =>
           import('./features/dashboard/dashboard.component').then((m) => m.DashboardComponent),

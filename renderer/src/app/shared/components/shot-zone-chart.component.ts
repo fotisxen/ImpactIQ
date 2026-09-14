@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { ShotZoneChart, ShotZoneEntry, ShotZoneKey } from '../../core/models/box-score.model';
 
-interface ZoneShape {
+export interface ZoneShape {
   zone: ShotZoneKey;
   label: string;
   /** Center point (in the 0-300 x 0-280 viewBox) for the label/value text. */
@@ -12,8 +12,9 @@ interface ZoneShape {
 
 // A simplified half-court, 5 zones matching the app's own shot_zones data model
 // (one region per zone, not split left/right — a deliberate simplification since
-// the underlying data is column-based, not coordinate-based).
-const ZONE_SHAPES: ZoneShape[] = [
+// the underlying data is column-based, not coordinate-based). Exported so the
+// manual Shot Chart entry screen can reuse the exact same regions to click on.
+export const ZONE_SHAPES: ZoneShape[] = [
   { zone: 'at_rim', label: 'At The Rim', cx: 150, cy: 55, path: 'M 110,20 A 40,40 0 0,0 190,20 Z' },
   { zone: 'mid_range', label: 'Mid-Range', cx: 150, cy: 115, path: 'M 60,20 A 100,100 0 0,0 110,20 L 110,20 A 40,40 0 0,1 190,20 L 240,20 A 100,100 0 0,0 190,20 Z M 60,20 A 100,100 0 0,0 240,20' },
   { zone: 'corner_3', label: 'Corner 3', cx: 30, cy: 200, path: 'M 5,20 L 5,180 L 55,180 L 55,20 Z' },

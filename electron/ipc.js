@@ -955,16 +955,28 @@ function registerIpcHandlers(mainWindow) {
     return { saved: true };
   });
 
+  /**
+   * Team's season zone totals. Two sources, both counted, never double-counted:
+   * (a) team-only rows (player_id IS NULL) — how the old bulk "import a whole
+   *     season at once" flow always wrote a team's totals, as one independent
+   *     measurement (not meant to be added to any per-player rows from that
+   *     same bulk import, which sat alongside it un-summed);
+   * (b) player-level rows that DO carry a game_id — only ever written by the
+   *     new per-game manual entry screen, where the team total is explicitly
+   *     meant to be built up as the sum of whichever players got entered for
+   *     each game. Old bulk-imported player rows have no game_id and are
+   *     deliberately excluded here so they're never added on top of (a).
+   */
   ipcMain.handle('db:get-team-shot-zones', async (_event, teamId, seasonId) => {
     const supabase = getSupabaseClient();
-    const { data: rows, error } = await supabase
-      .from('shot_zones')
-      .select('zone, fgm, fga')
-      .eq('team_id', teamId)
-      .eq('season_id', seasonId)
-      .is('player_id', null);
-    if (error) throw new Error(error.message);
-    return { hasData: (rows ?? []).length > 0, chart: buildZoneChart(rows ?? []) };
+    const [teamOnly, gameScopedPlayerRows] = await Promise.all([
+      supabase.from('shot_zones').select('zone, fgm, fga').eq('team_id', teamId).eq('season_id', seasonId).is('player_id', null),
+      supabase.from('shot_zones').select('zone, fgm, fga').eq('team_id', teamId).eq('season_id', seasonId).not('player_id', 'is', null).not('game_id', 'is', null),
+    ]);
+    if (teamOnly.error) throw new Error(teamOnly.error.message);
+    if (gameScopedPlayerRows.error) throw new Error(gameScopedPlayerRows.error.message);
+    const rows = [...(teamOnly.data ?? []), ...(gameScopedPlayerRows.data ?? [])];
+    return { hasData: rows.length > 0, chart: buildZoneChart(rows) };
   });
 
   ipcMain.handle('db:get-player-shot-zones', async (_event, playerId, seasonId) => {
@@ -976,6 +988,117 @@ function registerIpcHandlers(mainWindow) {
       .eq('season_id', seasonId);
     if (error) throw new Error(error.message);
     return { hasData: (rows ?? []).length > 0, chart: buildZoneChart(rows ?? []) };
+  });
+
+  /**
+   * One click-a-zone entry from the manual Shot Chart screen: makes/attempts
+   * for one team (or one specific player on that team) from one zone, in one
+   * specific match between two named teams. Resolves the match to a real
+   * `games` row by natural key (season + date + the two teams, in either
+   * home/away order) — reusing whatever row already exists (e.g. one a box
+   * score was already saved against) rather than creating a duplicate.
+   */
+  ipcMain.handle(
+    'db:save-shot-zone-entry',
+    async (_event, { teamAId, teamBId, seasonId, gameDate, forTeamId, playerId, zone, fgm, fga }) => {
+      const tier = await getTier();
+      if (!tier.organizationId) {
+        throw new Error('Your account needs to be assigned to a club before saving shot data — contact your administrator.');
+      }
+      const supabase = getSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error('You need to be logged in to save shot data.');
+
+      const { data: existingGame, error: findErr } = await supabase
+        .from('games')
+        .select('id')
+        .eq('season_id', seasonId)
+        .eq('date', gameDate)
+        .or(`and(home_team_id.eq.${teamAId},away_team_id.eq.${teamBId}),and(home_team_id.eq.${teamBId},away_team_id.eq.${teamAId})`)
+        .maybeSingle();
+      if (findErr) throw new Error(findErr.message);
+
+      let gameId = existingGame?.id;
+      if (!gameId) {
+        const { data: createdGame, error: createErr } = await supabase
+          .from('games')
+          .insert({
+            season_id: seasonId,
+            date: gameDate,
+            home_team_id: teamAId,
+            away_team_id: teamBId,
+            source: 'manual',
+            owner_user_id: user.id,
+            organization_id: tier.organizationId,
+          })
+          .select('id')
+          .single();
+        if (createErr) throw new Error(createErr.message);
+        gameId = createdGame.id;
+      }
+
+      const { data: created, error: insertErr } = await supabase
+        .from('shot_zones')
+        .insert({
+          team_id: forTeamId,
+          player_id: playerId ?? null,
+          season_id: seasonId,
+          game_id: gameId,
+          zone,
+          fgm,
+          fga,
+          owner_user_id: user.id,
+          organization_id: tier.organizationId,
+        })
+        .select('id')
+        .single();
+      if (insertErr) throw new Error(insertErr.message);
+
+      return { id: created.id, gameId };
+    }
+  );
+
+  /** Looks up (without creating) the game a matchup already resolves to, so revisiting an in-progress match can load its existing entries. Null if that exact matchup/date has never been saved. */
+  ipcMain.handle('db:find-game-by-matchup', async (_event, { teamAId, teamBId, seasonId, gameDate }) => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('games')
+      .select('id')
+      .eq('season_id', seasonId)
+      .eq('date', gameDate)
+      .or(`and(home_team_id.eq.${teamAId},away_team_id.eq.${teamBId}),and(home_team_id.eq.${teamBId},away_team_id.eq.${teamAId})`)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data?.id ?? null;
+  });
+
+  ipcMain.handle('db:list-shot-zone-entries-for-game', async (_event, gameId) => {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('shot_zones')
+      .select('id, team_id, player_id, zone, fgm, fga, team:teams(name), player:players(name)')
+      .eq('game_id', gameId)
+      .order('id', { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((r) => ({
+      id: r.id,
+      teamId: r.team_id,
+      teamName: r.team?.name ?? null,
+      playerId: r.player_id,
+      playerName: r.player?.name ?? null,
+      zone: r.zone,
+      fgm: r.fgm,
+      fga: r.fga,
+    }));
+  });
+
+  ipcMain.handle('db:delete-shot-zone-entry', async (_event, id) => {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.from('shot_zones').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    return { deleted: true };
   });
 
   /** Individual shot locations for a real dot-scatter chart — {x,y,made,value}[], already in the app's 0-300x0-320 half-court coordinate space. */
