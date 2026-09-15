@@ -18,13 +18,13 @@ const ZONE_LABELS: Record<ShotZoneKey, string> = {
 
 /**
  * Maps a click point (in the court's own 300x320 viewBox, basket at
- * 150,20 — same coordinate space as the Draw tool's court) to one of the
- * app's 5 shot_zones categories. Geometry matches the actual court lines
- * drawn below: the free-throw lane/circle, the real NBA-proportioned
- * 3-point arc (radius 135 from the basket) with its two straight corner
- * segments (x<=25 or x>=275, y<=71 — the corner 3 is genuinely a shorter
- * shot than the arc, same as real courts, which is why it isn't just "outside
- * a radius-135 circle").
+ * 150,20) to one of the app's 5 shot_zones categories. Geometry matches
+ * the actual court lines drawn below: the free-throw lane/circle, and a
+ * 3-point arc (radius 190 from the basket) with its two straight corner
+ * segments (x<=25 or x>=275, y<=163) — sized so the arc clears the
+ * free-throw circle (which bulges out to y=185 at its widest) instead of
+ * cutting through it, the way a radius scaled straight off the free-throw
+ * line's own real-court proportions would.
  */
 function classifyZone(x: number, y: number): ShotZoneKey {
   const dx = x - 150;
@@ -33,8 +33,8 @@ function classifyZone(x: number, y: number): ShotZoneKey {
 
   if (dist <= 40) return 'at_rim';
 
-  const inCornerStrip = (x <= 25 || x >= 275) && y <= 71;
-  const beyondArc = dist > 135;
+  const inCornerStrip = (x <= 25 || x >= 275) && y <= 163;
+  const beyondArc = dist > 190;
 
   if (!inCornerStrip && !beyondArc) return 'mid_range';
   if (inCornerStrip) return 'corner_3';
@@ -108,7 +108,7 @@ interface SessionDot {
               <rect x="105" y="0" width="90" height="140" class="court-line" />
               <circle cx="150" cy="140" r="45" class="court-line" />
               <path d="M 105,20 A 20,20 0 0,0 195,20" class="court-line" />
-              <path d="M 25,0 L 25,71 A 135,135 0 0,0 275,71 L 275,0" class="court-line" />
+              <path d="M 25,0 L 25,163 A 190,190 0 0,0 275,163 L 275,0" class="court-line" />
               @for (dot of sessionDots(); track dot.entryId) {
                 <circle
                   [attr.cx]="dot.x"
