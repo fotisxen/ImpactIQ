@@ -2,20 +2,64 @@ import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, v
 import { FormsModule } from '@angular/forms';
 import { GameContextPickerComponent } from '../../shared/components/game-context-picker.component';
 import { EntityPickerComponent, PickerOption } from '../../shared/components/entity-picker.component';
-import { ZONE_SHAPES } from '../../shared/components/shot-zone-chart.component';
 import { EntitiesService } from '../../core/data/entities.service';
 import { ToastService } from '../../shared/services/toast.service';
 import { Player, ShotZoneEntryRow, ShotZoneKey } from '../../core/models/box-score.model';
 
 const TEAM_TOTAL_OPTION_ID = -1;
 
+const ZONE_LABELS: Record<ShotZoneKey, string> = {
+  at_rim: 'At The Rim',
+  mid_range: 'Mid-Range',
+  corner_3: 'Corner 3',
+  wing_3: 'Wing 3',
+  top_key_3: 'Top of Key 3',
+};
+
 /**
- * Manual shot-chart entry: click a zone on a half-court diagram, say whose
- * shot it was (a specific player, or the team as a whole), type makes/
- * attempts, repeat. Everything saved here shares one match (two teams +
- * season + date) — the team's own season total is later built by summing
- * every entry across every game (see db:get-team-shot-zones), so this
- * screen only ever needs to worry about "what happened in this one game."
+ * Maps a click point (in the court's own 300x320 viewBox, basket at
+ * 150,20 — same coordinate space as the Draw tool's court) to one of the
+ * app's 5 shot_zones categories. Geometry matches the actual court lines
+ * drawn below: the free-throw lane/circle, the real NBA-proportioned
+ * 3-point arc (radius 135 from the basket) with its two straight corner
+ * segments (x<=25 or x>=275, y<=71 — the corner 3 is genuinely a shorter
+ * shot than the arc, same as real courts, which is why it isn't just "outside
+ * a radius-135 circle").
+ */
+function classifyZone(x: number, y: number): ShotZoneKey {
+  const dx = x - 150;
+  const dy = y - 20;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  if (dist <= 40) return 'at_rim';
+
+  const inCornerStrip = (x <= 25 || x >= 275) && y <= 71;
+  const beyondArc = dist > 135;
+
+  if (!inCornerStrip && !beyondArc) return 'mid_range';
+  if (inCornerStrip) return 'corner_3';
+
+  const angleFromCenterDeg = (Math.abs(Math.atan2(dx, dy)) * 180) / Math.PI;
+  return angleFromCenterDeg < 25 ? 'top_key_3' : 'wing_3';
+}
+
+interface SessionDot {
+  entryId: number;
+  x: number;
+  y: number;
+  fgm: number;
+  fga: number;
+}
+
+/**
+ * Manual shot-chart entry: click anywhere on a real half-court diagram
+ * (same court markings/coordinate space as the Draw tool — no visible zone
+ * regions, the zone is classified silently from where you clicked), say
+ * whose shot it was (a specific player, or the team as a whole), type
+ * makes/attempts, repeat. Everything saved here shares one match (two
+ * teams + season + date) — the team's own season total is later built by
+ * summing every entry across every game (see db:get-team-shot-zones), so
+ * this screen only ever needs to worry about "what happened in this one game."
  */
 @Component({
   selector: 'app-shot-chart-entry',
@@ -26,7 +70,7 @@ const TEAM_TOTAL_OPTION_ID = -1;
     <section class="shot-chart-page">
       <header class="page-header">
         <h2>Shot Chart Entry</h2>
-        <p class="hint">Click a zone on the court, then log makes/attempts for a team or one of its players.</p>
+        <p class="hint">Click anywhere on the court, then log makes/attempts for a team or one of its players.</p>
       </header>
 
       <app-game-context-picker #gameContext />
@@ -59,23 +103,32 @@ const TEAM_TOTAL_OPTION_ID = -1;
       @if (matchReady()) {
         <div class="entry-layout">
           <div class="court-panel card">
-            <svg viewBox="0 0 300 280" class="court">
-              <rect x="0" y="0" width="300" height="280" class="court-bg" />
-              <circle cx="150" cy="20" r="8" class="hoop" />
-              @for (shape of shapes; track shape.zone) {
-                <path
-                  [attr.d]="shape.path"
-                  class="zone clickable"
-                  [class.selected]="selectedZone() === shape.zone"
-                  (click)="selectZone(shape.zone)"
-                />
+            <svg #courtSvg viewBox="0 0 300 320" class="court" (click)="onCourtClick($event, $any(courtSvg))">
+              <rect x="0" y="0" width="300" height="320" class="court-bg" />
+              <rect x="105" y="0" width="90" height="140" class="court-line" />
+              <circle cx="150" cy="140" r="45" class="court-line" />
+              <path d="M 105,20 A 20,20 0 0,0 195,20" class="court-line" />
+              <path d="M 25,0 L 25,71 A 135,135 0 0,0 275,71 L 275,0" class="court-line" />
+              @for (dot of sessionDots(); track dot.entryId) {
+                <circle
+                  [attr.cx]="dot.x"
+                  [attr.cy]="dot.y"
+                  r="5"
+                  class="shot-dot"
+                  [class.made]="dot.fgm > 0"
+                >
+                  <title>{{ dot.fgm }}-{{ dot.fga }}</title>
+                </circle>
+              }
+              @if (pendingPoint(); as p) {
+                <circle [attr.cx]="p.x" [attr.cy]="p.y" r="6" class="shot-dot pending" />
               }
             </svg>
-            <p class="hint">Click a zone to log a make/attempt entry there.</p>
+            <p class="hint">Click anywhere on the court to log an entry there.</p>
           </div>
 
           <div class="form-panel card">
-            @if (selectedZone(); as z) {
+            @if (pendingPoint() && pendingZone(); as z) {
               <h4>{{ zoneLabel(z) }}</h4>
 
               <div class="side-toggle">
@@ -119,11 +172,14 @@ const TEAM_TOTAL_OPTION_ID = -1;
                 }
               </div>
 
-              <button type="button" class="btn btn-primary" [disabled]="!canSubmit() || saving()" (click)="submitEntry()">
-                {{ saving() ? 'Saving…' : 'Add entry' }}
-              </button>
+              <div class="form-actions">
+                <button type="button" class="btn btn-primary" [disabled]="!canSubmit() || saving()" (click)="submitEntry()">
+                  {{ saving() ? 'Saving…' : 'Add entry' }}
+                </button>
+                <button type="button" class="btn btn-ghost" (click)="cancelPending()">Cancel</button>
+              </div>
             } @else {
-              <p class="hint">Click a zone on the court to start an entry.</p>
+              <p class="hint">Click a spot on the court to start an entry.</p>
             }
           </div>
         </div>
@@ -209,31 +265,35 @@ const TEAM_TOTAL_OPTION_ID = -1;
     }
     .court {
       width: 100%;
-      max-width: 280px;
+      aspect-ratio: 300 / 320;
+      background: var(--surface-hover);
+      border-radius: var(--radius-sm);
+      cursor: crosshair;
+      touch-action: none;
+      user-select: none;
     }
     .court-bg {
-      fill: var(--surface);
+      fill: transparent;
     }
-    .hoop {
+    .court-line {
       fill: none;
-      stroke: var(--text-faint);
-      stroke-width: 2;
-    }
-    .zone {
-      fill: var(--surface-hover);
       stroke: var(--border-strong);
-      stroke-width: 1;
+      stroke-width: 1.5;
     }
-    .zone.clickable {
-      cursor: pointer;
-      transition: fill 0.1s ease;
-    }
-    .zone.clickable:hover {
-      fill: var(--accent-hover, var(--surface-raised));
-    }
-    .zone.selected {
+    .shot-dot {
       fill: var(--accent);
-      opacity: 0.85;
+      stroke: var(--surface);
+      stroke-width: 1;
+      pointer-events: none;
+    }
+    .shot-dot.made {
+      fill: var(--positive);
+    }
+    .shot-dot.pending {
+      fill: var(--accent);
+      stroke: var(--text);
+      stroke-width: 1.5;
+      opacity: 0.9;
     }
     .side-toggle {
       display: flex;
@@ -250,6 +310,10 @@ const TEAM_TOTAL_OPTION_ID = -1;
     .slash {
       font-weight: 700;
       color: var(--text-muted);
+    }
+    .form-actions {
+      display: flex;
+      gap: var(--space-2);
     }
     .table-scroll {
       overflow-x: auto;
@@ -275,7 +339,6 @@ export class ShotChartEntryComponent {
   private readonly entities = inject(EntitiesService);
   private readonly toast = inject(ToastService);
 
-  protected readonly shapes = ZONE_SHAPES;
   protected readonly teamTotalOptionId = TEAM_TOTAL_OPTION_ID;
 
   protected readonly teamAId = signal<number | null>(null);
@@ -302,12 +365,18 @@ export class ShotChartEntryComponent {
     () => this.teamAId() !== null && this.teamBId() !== null && !this.sameTeamPicked() && !!this.gameDate()
   );
 
-  protected readonly selectedZone = signal<ShotZoneKey | null>(null);
+  protected readonly pendingPoint = signal<{ x: number; y: number } | null>(null);
+  protected readonly pendingZone = computed<ShotZoneKey | null>(() => {
+    const p = this.pendingPoint();
+    return p ? classifyZone(p.x, p.y) : null;
+  });
   protected readonly forTeamId = signal<number | null>(null);
   protected readonly selectedPlayerId = signal<number | null>(null);
   protected readonly fgm = signal<number | null>(null);
   protected readonly fga = signal<number | null>(null);
   protected readonly saving = signal(false);
+
+  protected readonly sessionDots = signal<SessionDot[]>([]);
 
   protected readonly playersByTeam = signal<Map<number, Player[]>>(new Map());
   protected readonly playerOptionsForSelectedTeam = computed<PickerOption[]>(() => {
@@ -324,7 +393,7 @@ export class ShotChartEntryComponent {
   protected readonly canSubmit = computed(() => {
     const m = this.fgm();
     const a = this.fga();
-    return this.selectedZone() !== null && this.forTeamId() !== null && m !== null && a !== null && m >= 0 && a >= 0 && m <= a;
+    return this.pendingPoint() !== null && this.forTeamId() !== null && m !== null && a !== null && m >= 0 && a >= 0 && m <= a;
   });
 
   constructor() {
@@ -364,15 +433,30 @@ export class ShotChartEntryComponent {
     this.selectedPlayerId.set(null);
   }
 
-  protected selectZone(zone: ShotZoneKey): void {
-    this.selectedZone.set(zone);
+  protected onCourtClick(event: MouseEvent, svg: SVGSVGElement): void {
+    const point = this.svgPoint(event, svg);
+    this.pendingPoint.set(point);
     if (this.forTeamId() === null && this.teamAId() !== null) this.forTeamId.set(this.teamAId());
     this.fgm.set(null);
     this.fga.set(null);
   }
 
+  protected cancelPending(): void {
+    this.pendingPoint.set(null);
+  }
+
+  private svgPoint(event: MouseEvent, svg: SVGSVGElement): { x: number; y: number } {
+    const pt = svg.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return { x: 150, y: 160 };
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: Math.max(0, Math.min(300, p.x)), y: Math.max(0, Math.min(320, p.y)) };
+  }
+
   protected zoneLabel(zone: ShotZoneKey): string {
-    return this.shapes.find((s) => s.zone === zone)?.label ?? zone;
+    return ZONE_LABELS[zone] ?? zone;
   }
 
   private async loadPlayersForTeam(teamId: number): Promise<void> {
@@ -415,11 +499,12 @@ export class ShotChartEntryComponent {
     const teamAId = this.teamAId();
     const teamBId = this.teamBId();
     const seasonId = this.currentSeasonId();
-    const zone = this.selectedZone();
+    const point = this.pendingPoint();
+    const zone = this.pendingZone();
     const forTeamId = this.forTeamId();
     const fgm = this.fgm();
     const fga = this.fga();
-    if (teamAId === null || teamBId === null || seasonId === null || zone === null || forTeamId === null || fgm === null || fga === null) {
+    if (teamAId === null || teamBId === null || seasonId === null || point === null || zone === null || forTeamId === null || fgm === null || fga === null) {
       return;
     }
 
@@ -437,7 +522,9 @@ export class ShotChartEntryComponent {
         fga,
       });
       this.currentGameId.set(result.gameId);
+      this.sessionDots.update((dots) => [...dots, { entryId: result.id, x: point.x, y: point.y, fgm, fga }]);
       this.toast.success('Entry saved.');
+      this.pendingPoint.set(null);
       this.fgm.set(null);
       this.fga.set(null);
       await this.refreshEntries(result.gameId);
@@ -451,6 +538,7 @@ export class ShotChartEntryComponent {
   protected async deleteEntry(id: number): Promise<void> {
     try {
       await window.boxscoreApi.deleteShotZoneEntry(id);
+      this.sessionDots.update((dots) => dots.filter((d) => d.entryId !== id));
       const gameId = this.currentGameId();
       if (gameId !== null) await this.refreshEntries(gameId);
     } catch (err) {
