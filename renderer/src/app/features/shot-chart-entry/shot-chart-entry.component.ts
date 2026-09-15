@@ -29,7 +29,7 @@ const TEAM_TOTAL_OPTION_ID = -1;
         <p class="hint">Click a zone on the court, then log makes/attempts for a team or one of its players.</p>
       </header>
 
-      <app-game-context-picker #gameContext [autoSelectDefault]="false" />
+      <app-game-context-picker #gameContext />
 
       <div class="match-fields card">
         <app-entity-picker
