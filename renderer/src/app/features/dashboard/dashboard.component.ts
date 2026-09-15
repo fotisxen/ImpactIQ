@@ -1320,13 +1320,13 @@ export class DashboardComponent implements OnInit {
         this.reportMaxGame.set(max);
         this.reportThroughGame.set(max);
       });
-    });
+    }, { allowSignalWrites: true });
 
     effect(() => {
       this.dash.selectedLeagueId();
       this.dash.selectedSeasonId();
       this.selectedStandingsTeamId.set(null);
-    });
+    }, { allowSignalWrites: true });
   }
 
   protected onReportThroughGameChange(event: Event): void {

@@ -1,10 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Sentry needs its own light init inside this isolated preload context too
-// (contextIsolation:true means it's a separate JS world from the renderer's
-// own Sentry.init() in main.ts) — this one just relays through IPC to the
-// main process's init, it carries no config of its own.
-require('@sentry/electron/renderer').init();
+// NOTE: this preload script runs in Electron's sandboxed preload context
+// (contextIsolation: true, no explicit sandbox:false in main.js), which uses
+// its own restricted module loader — it can require() Electron/Node builtins
+// but NOT arbitrary npm packages like @sentry/electron. (A prior version of
+// this file tried `require('@sentry/electron/renderer').init()` here, which
+// made the WHOLE preload script fail to load — silently breaking every
+// window.boxscoreApi call, since contextBridge.exposeInMainWorld below never
+// ran. Sentry is still fully initialized in the actual renderer bundle, see
+// renderer/src/main.ts — that's a normal bundled context, not this sandbox.)
 
 // Exposes the configured DSN (a public, client-safe identifier — not a
 // secret, same as the Supabase anon key) so the renderer's own Sentry.init()

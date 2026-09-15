@@ -98,7 +98,7 @@ export class LeaguePickerComponent {
       if (id === null) return;
       const league = this.leagues().find((l) => l.id === id);
       if (league?.country) this.country.set(league.country);
-    });
+    }, { allowSignalWrites: true });
   }
 
   onCreate(name: string): void {

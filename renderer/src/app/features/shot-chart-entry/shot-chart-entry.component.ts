@@ -337,7 +337,12 @@ export class ShotChartEntryComponent {
       const seasonId = this.currentSeasonId();
       const gameDate = this.gameDate();
       void this.tryResolveMatch(teamAId, teamBId, seasonId, gameDate);
-    });
+      // tryResolveMatch's early-exit branch writes currentGameId/entries
+      // synchronously (before its first await) when the match isn't fully
+      // picked yet — same "signal write inside effect" shape Angular
+      // restricts by default (NG0600); explicitly allowed since neither
+      // signal is read by this effect, so there's no feedback loop.
+    }, { allowSignalWrites: true });
   }
 
   protected async onTeamASelect(id: number | null): Promise<void> {
